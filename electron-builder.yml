@@ -1,0 +1,35 @@
+appId: com.hapicode.app
+productName: hAPIcode
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+# Copie l'icone dans resources/ pour qu'elle soit accessible au runtime (tray).
+extraResources:
+  - from: build/icon.png
+    to: icon.png
+asarUnpack:
+  - "**/node_modules/ssh2/**"
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: ${productName}-${version}-${arch}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: hAPIcode
+  # Ferme automatiquement l'app (process systray) avant une mise a jour.
+  include: build/installer.nsh
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Development
+  maintainer: stevo-code <297314116+stevo-code@users.noreply.github.com>
+  synopsis: Multi-provider desktop coding agent (bring your own API key)
+  artifactName: ${productName}-${version}-${arch}.${ext}
