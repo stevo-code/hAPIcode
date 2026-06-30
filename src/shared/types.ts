@@ -28,6 +28,8 @@ export interface ModelInfo {
   credentialId: string
   providerId: string
   providerLabel: string
+  /** Fenetre de contexte REELLE renvoyee par l'API du fournisseur (quand disponible). */
+  contextWindow?: number
 }
 
 export interface ChatMessage {
@@ -120,12 +122,24 @@ export type ConvTarget =
   | { type: 'local'; path: string }
   | { type: 'ssh'; sessionId: string; label: string; cwd: string }
 
+/** Un compactage effectue : un « chapitre » resume de la session, conserve et consultable. */
+export interface Compaction {
+  id: string
+  at: number
+  /** Titre court du chapitre (affiche au survol). */
+  title: string
+  /** Resume detaille = les notes de cette tranche de session (consultable au clic). */
+  summary: string
+}
+
 export interface Conversation {
   id: string
   section: 'chat' | 'code'
   title: string
   createdAt: number
   updatedAt: number
+  /** Historique des compactages (chapitres), du plus ancien au plus recent. */
+  compactions?: Compaction[]
   /** Pastille de statut (couleur), facon Claude Code. */
   color: string
   credentialId?: string

@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import type { Compaction } from '@shared/types'
 import { useApp } from '../store'
 import { useT } from '../lib/i18n'
 import { ModelPicker } from './ModelPicker'
@@ -20,6 +23,7 @@ export function ConversationView({ convId }: { convId: string }): JSX.Element {
   const toggleAutoApprove = useApp((s) => s.toggleAutoApprove)
 
   const [input, setInput] = useState('')
+  const [viewCp, setViewCp] = useState<Compaction | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
 
@@ -65,6 +69,31 @@ export function ConversationView({ convId }: { convId: string }): JSX.Element {
     <div className="conversation">
       <TitleBar convId={convId} onChangeTarget={conv.section === 'code' ? () => setConvTarget(convId, undefined as never) : undefined} />
 
+      {!!conv.compactions?.length && (
+        <div className="compaction-bar" title={t('compactionView')}>
+          <span className="compaction-bar-ico">🗜</span>
+          {conv.compactions.map((cp, i) => (
+            <button
+              key={cp.id}
+              className="compaction-mark"
+              title={`${t('compactionDone')} ${i + 1} · ${cp.title}`}
+              onClick={() => setViewCp(cp)}
+            >
+              <span className="compaction-mark-bar" />
+              {i + 1}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {viewCp && (
+        <CompactionModal
+          cp={viewCp}
+          index={(conv.compactions?.findIndex((x) => x.id === viewCp.id) ?? 0) + 1}
+          onClose={() => setViewCp(null)}
+        />
+      )}
+
       <div className="conv-main">
           <div className="messages" ref={scrollRef}>
             {conv.compacting && (
@@ -97,6 +126,14 @@ export function ConversationView({ convId }: { convId: string }): JSX.Element {
             {/* Sélecteur Local/SSH + dossier : AU-DESSUS du champ, et seulement tant que le
                 projet n'est pas démarré (ensuite on se reconnecte toujours au même dossier). */}
             {conv.section === 'code' && (!conv.target || conv.messages.length === 0) && <TargetBar convId={convId} />}
+            {conv.compacting && (
+              <div className="working-status">
+                <span className="spinner" />
+                <span className="working-ico">🗜</span>
+                <span className="working-label">{t('compacting')}</span>
+              </div>
+            )}
+            {conv.busy && !conv.compacting && <WorkingStatus phase={conv.phase} />}
             <div className="composer-panel">
               <div className="composer-input-row">
                 <textarea
@@ -138,6 +175,60 @@ export function ConversationView({ convId }: { convId: string }): JSX.Element {
               <ContextChip convId={convId} />
             </div>
           </div>
+      </div>
+    </div>
+  )
+}
+
+/** Indicateur « en cours » sous le texte : dit CE que l'agent fait (réflexion / analyse / outil…). */
+function WorkingStatus({ phase }: { phase?: string }): JSX.Element {
+  const t = useT()
+  let icon = '⏳'
+  let label = t('phaseStarting')
+  if (phase === 'thinking') {
+    icon = '💭'
+    label = t('phaseThinking')
+  } else if (phase === 'writing') {
+    icon = '✍️'
+    label = t('phaseWriting')
+  } else if (phase === 'analyzing') {
+    icon = '🔎'
+    label = t('phaseAnalyzing')
+  } else if (phase?.startsWith('tool:')) {
+    icon = '🔧'
+    label = `${t('phaseTool')} : ${phase.slice(5)}`
+  }
+  return (
+    <div className="working-status">
+      <span className="working-dot" />
+      <span className="working-ico">{icon}</span>
+      <span className="working-label">{label}</span>
+    </div>
+  )
+}
+
+/** Modale d'un chapitre de compactage : le résumé détaillé (les notes) de cette tranche. */
+function CompactionModal({ cp, index, onClose }: { cp: Compaction; index: number; onClose: () => void }): JSX.Element {
+  const t = useT()
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <span className="titlebar-title">
+            🗜 {t('compactionDone')} {index} — {cp.title}
+          </span>
+          <div className="titlebar-spacer" />
+          <button className="ghost-btn small" onClick={() => window.api.app.copyText(cp.summary)}>
+            {t('copy')}
+          </button>
+          <button className="icon-btn" onClick={onClose}>
+            ✕
+          </button>
+        </div>
+        <div className="modal-body md compaction-summary">
+          <div className="compaction-date">{new Date(cp.at).toLocaleString()}</div>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{cp.summary}</ReactMarkdown>
+        </div>
       </div>
     </div>
   )

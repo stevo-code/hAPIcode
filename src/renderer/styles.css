@@ -2044,6 +2044,12 @@ button {
 }
 .tasks-title {
   font-weight: 600;
+  /* Se tronque au lieu de pousser le ✕ sous les boutons fenetre (zone reservee a droite). */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .tasks-list {
   flex: 1;
@@ -2168,6 +2174,96 @@ button {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* Indicateur « en cours » sous le texte : point qui pulse + ce que l'agent fait. */
+.working-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 2px 4px 8px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+.working-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 rgba(124, 92, 255, 0.5);
+  animation: workpulse 1.2s ease-in-out infinite;
+  flex: none;
+}
+.working-ico {
+  font-size: 13px;
+}
+.working-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@keyframes workpulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(124, 92, 255, 0.45);
+    opacity: 1;
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(124, 92, 255, 0);
+    opacity: 0.6;
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(124, 92, 255, 0);
+    opacity: 1;
+  }
+}
+
+/* Barre des chapitres de compactage : s'accumule en haut, chaque marque = un compactage. */
+.compaction-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+  overflow-x: auto;
+}
+.compaction-bar-ico {
+  font-size: 12px;
+  opacity: 0.65;
+  flex: none;
+}
+.compaction-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px 2px 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  flex: none;
+  transition: border-color 0.12s, color 0.12s;
+}
+.compaction-mark:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+.compaction-mark-bar {
+  width: 3px;
+  height: 11px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.modal-body.compaction-summary {
+  white-space: normal;
+  font-family: inherit;
+}
+.compaction-date {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 12px;
 }
 
 /* ============ Boutons fenetre (fenetre sans cadre OS) ============ */

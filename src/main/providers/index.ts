@@ -35,7 +35,13 @@ export interface AssistantTurn {
 
 /* --------------------------------- Listing ------------------------------------ */
 
-export async function listModels(ctx: ProviderContext): Promise<string[]> {
+/** Un modele liste, avec sa fenetre de contexte REELLE si l'API la fournit. */
+export interface ModelListing {
+  id: string
+  contextWindow?: number
+}
+
+export async function listModels(ctx: ProviderContext): Promise<ModelListing[]> {
   switch (ctx.kind) {
     case 'openai':
       return listOpenAiModels(ctx)
@@ -46,31 +52,61 @@ export async function listModels(ctx: ProviderContext): Promise<string[]> {
   }
 }
 
-async function listOpenAiModels(ctx: ProviderContext): Promise<string[]> {
+/** Cherche une fenetre de contexte dans les champs courants des reponses /models. */
+function ctxFromModel(m: any): number | undefined {
+  const raw =
+    m?.context_length ??
+    m?.context_window ??
+    m?.max_context_length ??
+    m?.max_model_len ??
+    m?.contextWindow ??
+    m?.context_size ??
+    m?.top_provider?.context_length
+  const n = typeof raw === 'number' ? raw : typeof raw === 'string' ? parseInt(raw, 10) : NaN
+  return Number.isFinite(n) && n > 0 ? n : undefined
+}
+
+/** Deduplique par id (garde la fenetre de contexte si l'une des copies la fournit) + tri. */
+function dedupListings(arr: ModelListing[]): ModelListing[] {
+  const map = new Map<string, ModelListing>()
+  for (const m of arr) {
+    if (!m.id) continue
+    const prev = map.get(m.id)
+    if (!prev) map.set(m.id, m)
+    else if (m.contextWindow && !prev.contextWindow) map.set(m.id, m)
+  }
+  return [...map.values()].sort((a, b) => a.id.localeCompare(b.id))
+}
+
+async function listOpenAiModels(ctx: ProviderContext): Promise<ModelListing[]> {
   const res = await fetch(`${ctx.baseUrl}/models`, { headers: { Authorization: `Bearer ${ctx.apiKey}` } })
   if (!res.ok) throw new Error(await errText(res))
   const json: any = await res.json()
-  return uniqSort((json.data ?? json.models ?? []).map((m: any) => m.id ?? m.name).filter(Boolean))
+  const data = json.data ?? json.models ?? []
+  return dedupListings(data.map((m: any) => ({ id: m.id ?? m.name, contextWindow: ctxFromModel(m) })))
 }
 
-async function listAnthropicModels(ctx: ProviderContext): Promise<string[]> {
+async function listAnthropicModels(ctx: ProviderContext): Promise<ModelListing[]> {
   const res = await fetch(`${ctx.baseUrl}/v1/models?limit=1000`, {
     headers: { 'x-api-key': ctx.apiKey, 'anthropic-version': '2023-06-01' }
   })
   if (!res.ok) throw new Error(await errText(res))
   const json: any = await res.json()
-  return uniqSort((json.data ?? []).map((m: any) => m.id).filter(Boolean))
+  return dedupListings((json.data ?? []).map((m: any) => ({ id: m.id, contextWindow: ctxFromModel(m) })))
 }
 
-async function listGeminiModels(ctx: ProviderContext): Promise<string[]> {
+async function listGeminiModels(ctx: ProviderContext): Promise<ModelListing[]> {
   const res = await fetch(`${ctx.baseUrl}/models?pageSize=1000&key=${encodeURIComponent(ctx.apiKey)}`)
   if (!res.ok) throw new Error(await errText(res))
   const json: any = await res.json()
-  return uniqSort(
+  return dedupListings(
     (json.models ?? [])
       .filter((m: any) => (m.supportedGenerationMethods ?? []).includes('generateContent'))
-      .map((m: any) => String(m.name ?? '').replace(/^models\//, ''))
-      .filter(Boolean)
+      .map((m: any) => ({
+        id: String(m.name ?? '').replace(/^models\//, ''),
+        // Gemini expose la limite d'entree directement.
+        contextWindow: typeof m.inputTokenLimit === 'number' && m.inputTokenLimit > 0 ? m.inputTokenLimit : undefined
+      }))
   )
 }
 

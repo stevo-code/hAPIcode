@@ -177,14 +177,17 @@ function ctxFor(credentialId: string): { ctx: ProviderContext; providerId: strin
   }
 }
 
-function toModelInfos(credentialId: string, providerId: string, label: string, ids: string[]): ModelInfo[] {
-  return ids.map((id) => ({
-    id,
-    label: id,
-    credentialId,
-    providerId,
-    providerLabel: label
-  }))
+function toModelInfos(
+  credentialId: string,
+  providerId: string,
+  label: string,
+  models: (string | { id: string; contextWindow?: number })[]
+): ModelInfo[] {
+  return models.map((m) => {
+    const id = typeof m === 'string' ? m : m.id
+    const contextWindow = typeof m === 'string' ? undefined : m.contextWindow
+    return { id, label: id, credentialId, providerId, providerLabel: label, contextWindow }
+  })
 }
 
 /* ---------------------------------- IPC --------------------------------------- */
@@ -316,9 +319,14 @@ function registerIpc(): void {
         ctx,
         {
           model: req.model,
+          maxTokens: 8000,
           system:
-            "Tu resumes une conversation pour en preserver le contexte essentiel. Produis un resume concis mais complet (decisions, faits, code important, taches en cours), en francais.",
-          messages: [{ role: 'user', content: `Resume cette conversation :\n\n${transcript}` }]
+            'Tu produis un RESUME DETAILLE d\'une session de travail (chat ou agent de code) destine a REMPLACER l\'historique tout en conservant le MAXIMUM de contexte utile pour continuer sans rien perdre. ' +
+            'Structure en markdown avec ces sections quand elles sont pertinentes : ' +
+            '## Objectif · ## Ce qui a ete fait (etape par etape) · ## Decisions et raisons · ## Fichiers crees ou modifies · ## Commandes clefs et resultats · ## Etat actuel · ## Prochaines etapes · ## Notes et pieges a retenir. ' +
+            'Sois PRECIS et EXHAUSTIF sur les faits concrets : noms de fichiers, chemins, fonctions, valeurs, parametres, erreurs rencontrees ET leurs corrections. ' +
+            'Conserve les extraits de code importants tels quels. Ne resume pas a outrance : ce texte est la seule memoire qui survivra. Reponds dans la langue de l\'utilisateur.',
+          messages: [{ role: 'user', content: `Resume EN DETAIL cette session de travail :\n\n${transcript}` }]
         },
         { onText: () => {}, onReasoning: () => {} }
       )

@@ -31,7 +31,12 @@ export interface RuntimeConv extends Conversation {
   compacting?: boolean
   /** Tokens REELS du dernier echange (renvoyes par l'API) = taille exacte du contexte. */
   contextTokens?: number
+  /** Phase de travail courante de l'agent (pour l'indicateur « en cours »). */
+  phase?: WorkPhase
 }
+
+/** Phase de travail affichee a l'utilisateur pendant qu'une reponse se genere. */
+export type WorkPhase = 'starting' | 'thinking' | 'writing' | 'analyzing' | `tool:${string}`
 
 const PALETTE = ['#4ec07a', '#d8a657', '#3a6ea5', '#cc7a4f', '#a06ad8', '#5ec8c8', '#e0707a']
 const AUTO_COMPACT_CHARS = 60000
@@ -114,10 +119,11 @@ export const useApp = create<AppState>((set, get) => {
   const persist = (id: string): void => {
     const c = get().conversations[id]
     if (!c) return
-    const { busy, streamId, compacting, ...rest } = c
+    const { busy, streamId, compacting, phase, ...rest } = c
     void busy
     void streamId
     void compacting
+    void phase
     window.api.conversations.upsert({
       ...rest,
       messages: rest.messages.map((m) => ({ role: m.role, content: m.content, reasoning: m.reasoning, blocks: m.blocks, tools: m.tools, error: m.error }))
@@ -231,10 +237,27 @@ export const useApp = create<AppState>((set, get) => {
     }
   }
 
+  // Phase de travail deduite de l'evenement en cours (pour l'indicateur « en cours »).
+  const phaseFor = (e: ChatEvent): WorkPhase | undefined => {
+    switch (e.type) {
+      case 'reasoning':
+        return 'thinking'
+      case 'text':
+        return 'writing'
+      case 'tool_call':
+        return `tool:${e.tool}`
+      case 'tool_result':
+        return 'analyzing'
+      default:
+        return undefined
+    }
+  }
+
   const handleEvent = (e: ChatEvent): void => {
     const entry = Object.values(get().conversations).find((c) => c.streamId === e.streamId)
     if (!entry) return
-    patch(entry.id, (c) => reduceConv(c, e))
+    const ph = phaseFor(e)
+    patch(entry.id, (c) => ({ ...reduceConv(c, e), ...(ph !== undefined ? { phase: ph } : {}) }))
     // « Accepter les modifications » : approuve automatiquement les actions sensibles.
     if (e.type === 'tool_call' && e.needsApproval && entry.autoApprove) {
       get().approve(entry.id, e.callId, true)
@@ -242,7 +265,7 @@ export const useApp = create<AppState>((set, get) => {
     if (e.type === 'done' || e.type === 'error') {
       // Taille EXACTE du contexte renvoyee par l'API (input + output du dernier appel).
       const usageTokens = e.type === 'done' && e.usage ? (e.usage.inputTokens ?? 0) + (e.usage.outputTokens ?? 0) : undefined
-      patch(entry.id, (c) => ({ ...c, busy: false, streamId: null, updatedAt: Date.now(), ...(usageTokens ? { contextTokens: usageTokens } : {}) }))
+      patch(entry.id, (c) => ({ ...c, busy: false, streamId: null, phase: undefined, updatedAt: Date.now(), ...(usageTokens ? { contextTokens: usageTokens } : {}) }))
       persist(entry.id)
       // L'agent nomme la conversation selon le sujet, apres le premier echange.
       if (e.type === 'done' && !get().conversations[entry.id]?.autoTitled) get().generateTitle(entry.id)
@@ -252,6 +275,23 @@ export const useApp = create<AppState>((set, get) => {
   // Taille de la conversation OUTILS INCLUS (sinon le compactage auto ne se declenche jamais
   // en mode agent, ou les sorties d'outils dominent le contexte).
   const estimateChars = (msgs: UiMessage[]): number => messagesChars(msgs)
+
+  // Fenetre de contexte du modele selectionne : valeur REELLE de l'API si dispo, sinon heuristique.
+  const selectedWindow = (): number => {
+    const sel = get().selected
+    if (!sel) return 128_000
+    const mi = get().models.find((m) => m.credentialId === sel.credentialId && m.id === sel.model)
+    return contextWindowFor(sel.model, mi?.contextWindow)
+  }
+
+  // Titre court du « chapitre » de compactage : 1re ligne utile du resume, nettoyee.
+  const compactionTitle = (summary: string): string => {
+    const line = summary
+      .split('\n')
+      .map((l) => l.replace(/^[#>*\-\s]+/, '').trim())
+      .find((l) => l.length > 2)
+    return (line ?? '').slice(0, 70) || 'Compactage'
+  }
 
   /* --------------------------------- etat initial ------------------------------ */
 
@@ -321,8 +361,7 @@ export const useApp = create<AppState>((set, get) => {
 
     contextUsage: (id) => {
       const c = get().conversations[id]
-      const sel = get().selected
-      const window = sel ? contextWindowFor(sel.model) : 128000
+      const window = selectedWindow()
       // Plancher = tokens REELS du dernier echange API ; l'estimation (outils inclus) capte
       // ce que l'utilisateur a ajoute depuis (gros collage, etc.). On prend le max des deux.
       const used = Math.max(c?.contextTokens ?? 0, estimateTokens(c ? messagesChars(c.messages) : 0))
@@ -498,7 +537,7 @@ export const useApp = create<AppState>((set, get) => {
       if (!content || !conv || conv.busy || !sel) return
 
       // Compactage automatique quand on approche la fenetre de contexte (tokens REELS si dispo).
-      const ctxWindow = contextWindowFor(sel.model)
+      const ctxWindow = selectedWindow()
       const usedTokens = Math.max(conv.contextTokens ?? 0, estimateTokens(estimateChars(conv.messages)))
       // Compactage anticipe (75%) : garde l'agent vif avant que le contexte ne sature.
       if (usedTokens > ctxWindow * 0.75) await get().compact(id)
@@ -517,6 +556,7 @@ export const useApp = create<AppState>((set, get) => {
         messages: [...history, userMsg, assistant],
         busy: true,
         streamId,
+        phase: 'starting',
         updatedAt: Date.now()
       }))
       persist(id)
@@ -587,10 +627,13 @@ export const useApp = create<AppState>((set, get) => {
           model: sel.model,
           messages: c.messages.map((m) => ({ role: m.role, content: m.content }))
         })
+        const compaction = { id: crypto.randomUUID(), at: Date.now(), title: compactionTitle(summary), summary }
         patch(id, (x) => ({
           ...x,
           compacting: false,
           contextTokens: undefined,
+          // Chapitre conserve : consultable, et les notes survivent.
+          compactions: [...(x.compactions ?? []), compaction],
           messages: [
             { role: 'user', content: `Contexte resume de notre conversation precedente :\n\n${summary}` },
             { role: 'assistant', content: 'Compris, je continue avec ce contexte.' }

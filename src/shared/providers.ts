@@ -120,10 +120,12 @@ export function getPreset(id: string): ProviderPreset | undefined {
 }
 
 /**
- * Estimation de la fenetre de contexte (en tokens) d'un modele a partir de son identifiant.
- * Heuristique : les valeurs exactes ne sont pas exposees uniformement par les API.
+ * Fenetre de contexte (en tokens) d'un modele.
+ * Si `apiWindow` est fourni (valeur REELLE renvoyee par l'API du fournisseur), on l'utilise.
+ * Sinon, heuristique sur l'identifiant (les API n'exposent pas toutes cette valeur).
  */
-export function contextWindowFor(model: string): number {
+export function contextWindowFor(model: string, apiWindow?: number): number {
+  if (apiWindow && apiWindow > 0) return apiWindow
   const m = model.toLowerCase()
   // Anthropic
   if (/claude/.test(m)) {
@@ -135,24 +137,39 @@ export function contextWindowFor(model: string): number {
     if (/1\.5-pro/.test(m)) return 2_000_000
     return 1_000_000
   }
-  // DeepSeek (V4 flash/pro : 1M de contexte)
-  if (/deepseek/.test(m)) return 1_000_000
+  // DeepSeek (V3.x : 128k ; certains deploiements 1M)
+  if (/deepseek/.test(m)) return /v3\.2|deepseek-(chat|reasoner)/.test(m) ? 128_000 : 1_000_000
+  // Zhipu GLM (GLM-5/5.2 : 1M ; GLM-4.6 : 200k ; GLM-4.5 : 128k)
+  if (/\bglm/.test(m) || /glm-?[45]/.test(m)) {
+    if (/glm-?5/.test(m)) return 1_000_000
+    if (/glm-?4\.6/.test(m)) return 200_000
+    return 128_000
+  }
+  // Qwen (turbo : 1M ; sinon 128k)
+  if (/qwen/.test(m)) return /turbo/.test(m) ? 1_000_000 : 128_000
+  // Moonshot / Kimi
+  if (/kimi|moonshot/.test(m)) return 200_000
   // OpenAI & compatibles
-  if (/(^|[-/])(o1|o3|o4|gpt-5)/.test(m)) return 200_000
+  if (/(^|[-/])(o1|o3|o4|gpt-5)/.test(m)) return 400_000
   if (/gpt-4\.1/.test(m)) return 1_000_000
   if (/gpt-4o|gpt-4-turbo|gpt-4-0125|gpt-4-1106/.test(m)) return 128_000
   if (/gpt-4/.test(m)) return 8_192
   if (/gpt-3\.5/.test(m)) return 16_385
-  // OpenRouter / Llama / Mistral / Grok / divers
-  if (/llama-3|llama3/.test(m)) return 128_000
-  if (/mistral-large|codestral/.test(m)) return 128_000
+  // Meta Llama 4 (contexte massif) / Llama 3
+  if (/llama-?4/.test(m)) return 1_000_000
+  if (/llama-?3/.test(m)) return 128_000
+  if (/mistral-large|codestral|mixtral|ministral/.test(m)) return 128_000
   if (/grok/.test(m)) return 131_072
+  if (/command-?r/.test(m)) return 128_000
   return 128_000
 }
 
-/** Estimation grossiere du nombre de tokens (≈ 4 caracteres / token). */
+/**
+ * Estimation du nombre de tokens. ~3.5 caracteres / token : compromis entre le texte
+ * (≈4) et le code/JSON des sorties d'outils (≈3), pour ne pas SOUS-estimer la jauge.
+ */
 export function estimateTokens(chars: number): number {
-  return Math.ceil(chars / 4)
+  return Math.ceil(chars / 3.5)
 }
 
 /**
