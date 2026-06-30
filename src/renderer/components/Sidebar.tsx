@@ -2,6 +2,9 @@ import { useApp, type Section } from '../store'
 import { useT } from '../lib/i18n'
 import { IconMark, Wordmark } from './Logo'
 
+/** Lien de don PayPal — ouvert dans le navigateur, aucun paiement dans l'app. */
+const DONATE_URL = 'https://www.paypal.com/ncp/payment/YXJ63CAEPVDGG'
+
 export function Sidebar(): JSX.Element {
   const t = useT()
   const view = useApp((s) => s.view)
@@ -19,6 +22,8 @@ export function Sidebar(): JSX.Element {
   const searchQuery = useApp((s) => s.searchQuery)
   const setSearchOpen = useApp((s) => s.setSearchOpen)
   const setSearchQuery = useApp((s) => s.setSearchQuery)
+  const update = useApp((s) => s.update)
+  const dismissUpdate = useApp((s) => s.dismissUpdate)
 
   if (collapsed) {
     return (
@@ -108,10 +113,40 @@ export function Sidebar(): JSX.Element {
       </div>
 
       <div className="sidebar-foot">
-        <button className={`nav-item ${view === 'settings' ? 'active' : ''}`} onClick={() => setView('settings')}>
-          <span className="nav-icon">⚙</span>
-          <span>{t('settings')}</span>
-        </button>
+        {update && (
+          <div
+            className="update-bubble"
+            onClick={() => window.api.app.openExternal(update.url)}
+            title={t('updateRelaunchHint')}
+          >
+            <IconMark size={18} />
+            <div className="update-text">
+              <span className="update-title">{t('updateAvailable')}</span>
+              {update.latest && <span className="update-ver">v{update.latest}</span>}
+            </div>
+            <span className="update-arrow">→</span>
+            <button
+              className="update-x"
+              title="✕"
+              onClick={(e) => {
+                e.stopPropagation()
+                dismissUpdate()
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
+        <div className="foot-row">
+          <button className={`nav-item ${view === 'settings' ? 'active' : ''}`} onClick={() => setView('settings')}>
+            <span className="nav-icon">⚙</span>
+            <span>{t('settings')}</span>
+          </button>
+          <button className="donate-btn" onClick={() => window.api.app.openExternal(DONATE_URL)} title={t('donateHint')}>
+            <span className="donate-heart">💙</span>
+            <span>{t('donate')}</span>
+          </button>
+        </div>
       </div>
     </nav>
   )

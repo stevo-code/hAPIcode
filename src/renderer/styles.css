@@ -119,8 +119,39 @@ button {
 }
 .sidebar-foot {
   margin-top: auto;
-  padding-top: 8px;
+  padding: 10px 6px 6px;
   border-top: 1px solid var(--border);
+}
+.foot-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.foot-row .nav-item {
+  flex: 1;
+}
+/* Bouton « Don » a droite de Reglages : ouvre le lien PayPal dans le navigateur. */
+.donate-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  padding: 7px 11px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.donate-btn:hover {
+  border-color: var(--accent);
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.donate-heart {
+  font-size: 13px;
 }
 
 /* ---------------- Logo / marque ---------------- */
@@ -1264,6 +1295,31 @@ button {
   max-width: 900px;
   margin: 0 auto;
   width: 100%;
+  position: relative;
+}
+/* Bouton « revenir en bas » : apparait quand on a remonte pendant que l'agent ecrit. */
+.scroll-bottom-btn {
+  position: absolute;
+  top: -52px;
+  right: 18px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: #fff;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+  transition: filter 0.12s, transform 0.12s;
+  z-index: 20;
+}
+.scroll-bottom-btn:hover {
+  filter: brightness(1.12);
+  transform: translateY(-1px);
 }
 .composer-panel {
   background: var(--bg-3);
@@ -2264,6 +2320,64 @@ button {
   font-size: 11px;
   color: var(--text-dim);
   margin-bottom: 12px;
+}
+
+/* Bulle « mise a jour disponible » (sidebar) : lien vers les releases GitHub, jamais d'install auto. */
+.update-bubble {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 8px 8px;
+  padding: 9px 10px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+}
+.update-bubble:hover {
+  border-color: var(--accent);
+  background: var(--bg-hover);
+}
+.update-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.update-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.update-ver {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.update-arrow {
+  color: var(--text-dim);
+  font-size: 14px;
+  flex: none;
+}
+.update-bubble:hover .update-arrow {
+  color: var(--accent);
+}
+.update-x {
+  flex: none;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-size: 11px;
+  padding: 2px 4px;
+  cursor: pointer;
+  opacity: 0.55;
+}
+.update-x:hover {
+  opacity: 1;
+  color: var(--text);
 }
 
 /* ============ Boutons fenetre (fenetre sans cadre OS) ============ */

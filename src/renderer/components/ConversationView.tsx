@@ -24,12 +24,35 @@ export function ConversationView({ convId }: { convId: string }): JSX.Element {
 
   const [input, setInput] = useState('')
   const [viewCp, setViewCp] = useState<Compaction | null>(null)
+  // Vrai tant que l'utilisateur est « collé » en bas ; faux dès qu'il remonte lire plus haut.
+  const [atBottom, setAtBottom] = useState(true)
   const scrollRef = useRef<HTMLDivElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
 
+  const scrollToBottom = (smooth = false): void => {
+    const el = scrollRef.current
+    if (!el) return
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
+    setAtBottom(true)
+  }
+
+  // Auto-scroll UNIQUEMENT si on est déjà en bas — sinon on laisse l'utilisateur lire tranquille.
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
-  }, [conv?.messages])
+    if (atBottom) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
+  }, [conv?.messages, atBottom])
+
+  // Changement de conversation : on redescend en bas.
+  useEffect(() => {
+    setAtBottom(true)
+    requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: scrollRef.current?.scrollHeight ?? 0 }))
+  }, [convId])
+
+  // À chaque défilement, on note si on est (re)collé au bas (marge de 80px).
+  const onMessagesScroll = (): void => {
+    const el = scrollRef.current
+    if (!el) return
+    setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80)
+  }
 
   // Agrandit la zone de saisie selon le contenu (Shift+Entrée), avec une limite (puis défilement).
   useEffect(() => {
@@ -45,6 +68,7 @@ export function ConversationView({ convId }: { convId: string }): JSX.Element {
     if (!input.trim()) return
     send(convId, input)
     setInput('')
+    setAtBottom(true)
   }
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -95,7 +119,7 @@ export function ConversationView({ convId }: { convId: string }): JSX.Element {
       )}
 
       <div className="conv-main">
-          <div className="messages" ref={scrollRef}>
+          <div className="messages" ref={scrollRef} onScroll={onMessagesScroll}>
             {conv.compacting && (
               <div className="compacting-banner">
                 <span className="spinner" /> 🗜 {t('compacting')}
@@ -123,6 +147,13 @@ export function ConversationView({ convId }: { convId: string }): JSX.Element {
           </div>
 
           <div className="composer-wrap">
+            {!atBottom && conv.messages.length > 0 && (
+              <button className="scroll-bottom-btn" onClick={() => scrollToBottom(true)} title={t('scrollToBottom')} aria-label={t('scrollToBottom')}>
+                <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M4 6.5 L8 10.5 L12 6.5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            )}
             {/* Sélecteur Local/SSH + dossier : AU-DESSUS du champ, et seulement tant que le
                 projet n'est pas démarré (ensuite on se reconnecte toujours au même dossier). */}
             {conv.section === 'code' && (!conv.target || conv.messages.length === 0) && <TargetBar convId={convId} />}

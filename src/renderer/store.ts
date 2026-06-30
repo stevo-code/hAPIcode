@@ -60,6 +60,8 @@ interface AppState {
   backgroundTasks: BgTask[]
   showTasks: boolean
   appVersion: string
+  /** Mise a jour disponible (release GitHub plus recente). null = aucune / pas verifie. */
+  update: { latest?: string; url: string } | null
   sidebarCollapsed: boolean
   searchOpen: boolean
   searchQuery: string
@@ -74,6 +76,7 @@ interface AppState {
   contextUsage: (id: string) => { used: number; window: number; pct: number }
   toggleTasks: () => void
   clearTasks: () => void
+  dismissUpdate: () => void
   toggleSidebar: () => void
   setSearchOpen: (v: boolean) => void
   setSearchQuery: (q: string) => void
@@ -313,6 +316,7 @@ export const useApp = create<AppState>((set, get) => {
     backgroundTasks: [],
     showTasks: false,
     appVersion: '',
+    update: null,
     sidebarCollapsed: false,
     searchOpen: false,
     searchQuery: '',
@@ -321,6 +325,7 @@ export const useApp = create<AppState>((set, get) => {
 
     toggleTasks: () => set({ showTasks: !get().showTasks }),
     clearTasks: () => window.api.tasks.clear(),
+    dismissUpdate: () => set({ update: null }),
     toggleSidebar: () => set({ sidebarCollapsed: !get().sidebarCollapsed }),
     setSearchOpen: (searchOpen) => set({ searchOpen, ...(searchOpen ? {} : { searchQuery: '' }) }),
     setSearchQuery: (searchQuery) => set({ searchQuery }),
@@ -402,6 +407,13 @@ export const useApp = create<AppState>((set, get) => {
       })
       await get().refreshCredentials()
       await get().refreshModels()
+      // Mise a jour : verification non bloquante au demarrage (jamais d'installation auto).
+      window.api.app
+        .checkUpdate()
+        .then((u) => {
+          if (u.available) set({ update: { latest: u.latest, url: u.url } })
+        })
+        .catch(() => {})
     },
 
     setView: (view) => set({ view }),

@@ -76,6 +76,8 @@ export interface RendererApi {
   }
   app: {
     version(): Promise<string>
+    /** Verifie s'il existe une release GitHub plus recente (lecture seule, jamais d'install auto). */
+    checkUpdate(): Promise<{ available: boolean; latest?: string; current: string; url: string }>
     openExternal(url: string): Promise<void>
     showPath(path: string): Promise<string>
     /** Copie du texte dans le presse-papier (fiable, via Electron). */

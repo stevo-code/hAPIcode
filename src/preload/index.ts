@@ -61,6 +61,7 @@ const api: RendererApi = {
   },
   app: {
     version: () => ipcRenderer.invoke('app:version'),
+    checkUpdate: () => ipcRenderer.invoke('app:checkUpdate'),
     openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
     showPath: (path) => ipcRenderer.invoke('app:showPath', path),
     copyText: (text) => ipcRenderer.invoke('app:copyText', text),

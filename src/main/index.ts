@@ -190,6 +190,21 @@ function toModelInfos(
   })
 }
 
+/** Depot GitHub source des releases (verification de mise a jour). */
+const RELEASES_REPO = 'stevo-code/hAPIcode'
+
+/** Compare deux versions « x.y.z » : true si `a` est STRICTEMENT plus recente que `b`. */
+function isNewerVersion(a: string, b: string): boolean {
+  const pa = a.split('.').map((n) => parseInt(n, 10) || 0)
+  const pb = b.split('.').map((n) => parseInt(n, 10) || 0)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] ?? 0
+    const y = pb[i] ?? 0
+    if (x !== y) return x > y
+  }
+  return false
+}
+
 /* ---------------------------------- IPC --------------------------------------- */
 
 function registerIpc(): void {
@@ -388,6 +403,23 @@ function registerIpc(): void {
 
   // Version de l'application + ouverture de lien externe
   ipcMain.handle('app:version', () => app.getVersion())
+  // Verifie s'il existe une release GitHub plus recente. Lecture seule, jamais d'installation auto.
+  ipcMain.handle('app:checkUpdate', async () => {
+    const current = app.getVersion()
+    const releasesUrl = `https://github.com/${RELEASES_REPO}/releases`
+    try {
+      const res = await fetch(`https://api.github.com/repos/${RELEASES_REPO}/releases/latest`, {
+        headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'hAPIcode-update-check' }
+      })
+      if (!res.ok) return { available: false, current, url: releasesUrl }
+      const json: any = await res.json()
+      const latest = String(json.tag_name ?? '').replace(/^v/i, '')
+      const url = typeof json.html_url === 'string' ? json.html_url : releasesUrl
+      return { available: !!latest && isNewerVersion(latest, current), latest, current, url }
+    } catch {
+      return { available: false, current, url: releasesUrl }
+    }
+  })
   ipcMain.handle('app:openExternal', (_e, url: string) => {
     if (/^https?:\/\//i.test(url)) shell.openExternal(url)
   })
