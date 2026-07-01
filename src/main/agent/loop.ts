@@ -1,5 +1,5 @@
 import type { AgentMessage, ChatEvent, ReasoningEffort, StreamId, TokenUsage } from '@shared/types'
-import { contextWindowFor } from '@shared/providers'
+import { contextWindowFor, effectiveWindow } from '@shared/providers'
 import { runTurn, type ProviderContext } from '../providers'
 import { NEEDS_APPROVAL, executeTool, executeToolSsh, toolsetFor } from './tools'
 import * as tasks from './tasks'
@@ -32,7 +32,9 @@ export interface AgentOptions {
  * PC qui rame). Les 6 resultats les plus recents restent intacts.
  */
 function trimContext(messages: AgentMessage[], model: string): void {
-  const budget = contextWindowFor(model) * 3 * 0.7 // ~3 car/token, 70% de marge
+  // Fenetre EFFECTIVE (plafonnee) : meme un modele 1M rame en pratique -> on borne le
+  // contexte API a ~3 car/token, 70% de marge, pour garder l'agent vif et l'app fluide.
+  const budget = effectiveWindow(contextWindowFor(model)) * 3 * 0.7
   let total = 0
   for (const m of messages) total += m.content.length
   if (total <= budget) return

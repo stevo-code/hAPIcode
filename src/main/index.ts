@@ -332,6 +332,8 @@ function registerIpc(): void {
       requestApproval,
       onUsage: (u) => {
         lastUsage = u
+        // Remontee EN DIRECT (pas seulement a la fin) : la jauge suit le contexte pendant un tour long.
+        emit({ streamId, type: 'usage', usage: u })
       }
     })
       .then(() => emit({ streamId, type: 'done', usage: lastUsage }))

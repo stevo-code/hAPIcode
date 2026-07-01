@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { BgTask } from '@shared/types'
 import { useApp } from '../store'
 import { useT } from '../lib/i18n'
@@ -12,19 +12,14 @@ function duration(t: BgTask): string {
 
 function TaskCard({ tk, t }: { tk: BgTask; t: (k: TKey) => string }): JSX.Element {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-  const [overflows, setOverflows] = useState(false)
-
-  useEffect(() => {
-    const el = ref.current
-    if (el) setOverflows(el.scrollHeight > el.clientHeight + 4)
-  }, [tk.detail, open])
-
+  const title = tk.title || (tk.kind === 'subagent' ? t('subAgent') : t('command'))
   return (
-    <div className={`task-card status-${tk.status}`}>
-      <div className="task-row">
+    <div className={`task-card status-${tk.status} ${open ? 'open' : ''}`}>
+      {/* Toute la ligne est cliquable : ouvre = titre complet + détail. Survol = titre en entier. */}
+      <div className="task-row" onClick={() => setOpen((o) => !o)} title={title}>
+        <span className="task-caret">{open ? '▾' : '▸'}</span>
         <span className="task-ico">{tk.kind === 'subagent' ? '🤖' : '▶️'}</span>
-        <span className="task-title">{tk.title || (tk.kind === 'subagent' ? t('subAgent') : t('command'))}</span>
+        <span className="task-title">{title}</span>
         <span className={`task-state status-${tk.status}`}>
           {tk.status === 'running' ? t('running') : tk.status === 'done' ? t('done') : t('errorLabel')}
         </span>
@@ -42,18 +37,7 @@ function TaskCard({ tk, t }: { tk: BgTask; t: (k: TKey) => string }): JSX.Elemen
           </>
         ) : null}
       </div>
-      {tk.detail && (
-        <>
-          <div ref={ref} className={`task-detail ${open ? 'expanded' : ''}`}>
-            {tk.detail}
-          </div>
-          {(overflows || open) && (
-            <button className="task-more" onClick={() => setOpen((o) => !o)}>
-              {open ? `▴ ${t('showLess')}` : `▾ ${t('showMore')}`}
-            </button>
-          )}
-        </>
-      )}
+      {open && tk.detail && <div className="task-detail expanded">{tk.detail}</div>}
     </div>
   )
 }
@@ -63,6 +47,7 @@ export function BackgroundTasksPanel(): JSX.Element {
   const tasks = useApp((s) => s.backgroundTasks)
   const toggle = useApp((s) => s.toggleTasks)
   const clear = useApp((s) => s.clearTasks)
+  const cancelAll = useApp((s) => s.cancelAll)
   const width = useApp((s) => s.tasksWidth)
   const [, setTick] = useState(0)
 
@@ -86,6 +71,11 @@ export function BackgroundTasksPanel(): JSX.Element {
       <div className="tasks-head">
         <span className="tasks-title">{t('backgroundTasks')}</span>
         <div className="titlebar-spacer" />
+        {hasRunning && (
+          <button className="ghost-btn small stop-run" onClick={cancelAll} title={t('stopAll')}>
+            ■ {t('stopAll')}
+          </button>
+        )}
         <button className="ghost-btn small" onClick={clear}>
           {t('clearDone')}
         </button>

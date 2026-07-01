@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { contextWindowFor, estimateTokens, messagesChars } from '@shared/providers'
 import { useApp } from '../store'
 import { useT } from '../lib/i18n'
 
@@ -45,13 +44,12 @@ export function ContextChip({ convId }: { convId: string }): JSX.Element | null 
   const t = useT()
   const conv = useApp((s) => s.conversations[convId])
   const selected = useApp((s) => s.selected)
+  const contextUsage = useApp((s) => s.contextUsage)
   const [open, setOpen] = useState(false)
   if (!conv || !selected) return null
 
-  const window = contextWindowFor(selected.model)
-  // Plancher = tokens REELS de l'API ; l'estimation capte ce qui a ete ajoute depuis. Max des deux.
-  const used = Math.max(conv.contextTokens ?? 0, estimateTokens(messagesChars(conv.messages)))
-  const pct = Math.min(100, Math.round((used / window) * 100))
+  // Source UNIQUE de vérité : même calcul que le store (jauge = seuil de compactage).
+  const { used, window, pct, modelWindow } = contextUsage(convId)
   const remaining = Math.max(0, window - used)
   const color = ringColor(pct)
 
@@ -78,7 +76,11 @@ export function ContextChip({ convId }: { convId: string }): JSX.Element | null 
             <div className="ctx-bar">
               <div className="ctx-bar-fill" style={{ width: `${Math.max(2, pct)}%`, background: color }} />
             </div>
-            <div className="ctx-pop-foot muted">{fmtTokens(remaining)} {t('remaining')}</div>
+            <div className="ctx-pop-foot muted">
+              {fmtTokens(remaining)} {t('remaining')}
+              {modelWindow > window ? ` · ${t('modelWindowLabel')} ${fmtTokens(modelWindow)}` : ''}
+            </div>
+            {modelWindow > window && <div className="ctx-pop-foot muted">{t('effectiveNote')}</div>}
           </div>
         </>
       )}

@@ -2206,6 +2206,30 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+.task-caret {
+  font-size: 9px;
+  color: var(--text-dim);
+  flex: none;
+  width: 9px;
+}
+/* Bouton « Tout arrêter » : rouge, pour stopper le travail en cours. */
+.ghost-btn.stop-run {
+  color: #e0707a;
+  border-color: rgba(224, 112, 122, 0.45);
+  flex: none;
+}
+.ghost-btn.stop-run:hover {
+  background: rgba(224, 112, 122, 0.14);
+  color: #eb8a92;
+}
+/* Carte ouverte : le titre s'affiche EN ENTIER (plus de troncature). */
+.task-card.open .task-title {
+  white-space: normal;
+  overflow: visible;
+  word-break: break-word;
 }
 .task-ico {
   font-size: 14px;

@@ -25,34 +25,49 @@ export function ConversationView({ convId }: { convId: string }): JSX.Element {
   const [input, setInput] = useState('')
   const [viewCp, setViewCp] = useState<Compaction | null>(null)
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
-  // Vrai tant que l'utilisateur est « collé » en bas ; faux dès qu'il remonte lire plus haut.
-  const [atBottom, setAtBottom] = useState(true)
+  // « Collé en bas » via un REF (valeur SYNCHRONE), pas un state : pendant un stream rapide,
+  // un state laisse passer une course (un token re-scrolle avant que le scroll-up soit pris
+  // en compte). Le ref est lu au moment exact de l'auto-scroll -> pas de retour intempestif.
+  const stickRef = useRef(true)
+  const [showJump, setShowJump] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
 
   const scrollToBottom = (smooth = false): void => {
     const el = scrollRef.current
     if (!el) return
+    stickRef.current = true
+    setShowJump(false)
     el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
-    setAtBottom(true)
   }
 
-  // Auto-scroll UNIQUEMENT si on est déjà en bas — sinon on laisse l'utilisateur lire tranquille.
+  // Auto-scroll à chaque nouveau contenu, MAIS uniquement si on est collé en bas (ref courant).
   useEffect(() => {
-    if (atBottom) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
-  }, [conv?.messages, atBottom])
+    if (stickRef.current) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
+  }, [conv?.messages])
 
-  // Changement de conversation : on redescend en bas.
+  // Changement de conversation : on recolle en bas.
   useEffect(() => {
-    setAtBottom(true)
+    stickRef.current = true
+    setShowJump(false)
     requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: scrollRef.current?.scrollHeight ?? 0 }))
   }, [convId])
 
-  // À chaque défilement, on note si on est (re)collé au bas (marge de 80px).
+  // Molette/trackpad vers le HAUT = l'utilisateur veut lire → on DÉCROCHE immédiatement
+  // (avant même que la position ne change), ce qui coupe net l'auto-scroll.
+  const onWheel = (e: React.WheelEvent<HTMLDivElement>): void => {
+    if (e.deltaY < 0) {
+      stickRef.current = false
+      setShowJump(true)
+    }
+  }
+  // Recalcule selon la position : recollé seulement si on revient tout en bas (marge 80px).
   const onMessagesScroll = (): void => {
     const el = scrollRef.current
     if (!el) return
-    setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80)
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    stickRef.current = near
+    setShowJump(!near)
   }
 
   // Agrandit la zone de saisie selon le contenu (Shift+Entrée), avec une limite (puis défilement).
@@ -70,7 +85,8 @@ export function ConversationView({ convId }: { convId: string }): JSX.Element {
     send(convId, input, attachments)
     setInput('')
     setAttachments([])
-    setAtBottom(true)
+    stickRef.current = true
+    setShowJump(false)
   }
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -148,7 +164,7 @@ export function ConversationView({ convId }: { convId: string }): JSX.Element {
       )}
 
       <div className="conv-main">
-          <div className="messages" ref={scrollRef} onScroll={onMessagesScroll}>
+          <div className="messages" ref={scrollRef} onScroll={onMessagesScroll} onWheel={onWheel}>
             {conv.compacting && (
               <div className="compacting-banner">
                 <span className="spinner" /> 🗜 {t('compacting')}
@@ -176,7 +192,7 @@ export function ConversationView({ convId }: { convId: string }): JSX.Element {
           </div>
 
           <div className="composer-wrap">
-            {!atBottom && conv.messages.length > 0 && (
+            {showJump && conv.messages.length > 0 && (
               <button className="scroll-bottom-btn" onClick={() => scrollToBottom(true)} title={t('scrollToBottom')} aria-label={t('scrollToBottom')}>
                 <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
                   <path d="M4 6.5 L8 10.5 L12 6.5" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />

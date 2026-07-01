@@ -195,6 +195,7 @@ export type ChatEvent =
   | { streamId: StreamId; type: 'tool_call'; callId: string; tool: string; args: unknown; needsApproval: boolean }
   | { streamId: StreamId; type: 'tool_result'; callId: string; result: string; isError?: boolean }
   | { streamId: StreamId; type: 'done'; usage?: TokenUsage }
+  | { streamId: StreamId; type: 'usage'; usage: TokenUsage }
   | { streamId: StreamId; type: 'error'; message: string }
 
 export interface TokenUsage {

@@ -165,11 +165,22 @@ export function contextWindowFor(model: string, apiWindow?: number): number {
 }
 
 /**
- * Estimation du nombre de tokens. ~3.5 caracteres / token : compromis entre le texte
- * (≈4) et le code/JSON des sorties d'outils (≈3), pour ne pas SOUS-estimer la jauge.
+ * Estimation du nombre de tokens. ~3.2 caracteres / token : le code/JSON des sorties
+ * d'outils (≈3) domine en mode agent — on prefere sur-estimer legerement que sous-estimer
+ * (une jauge qui sous-compte laisse le contexte exploser sans compactage).
  */
 export function estimateTokens(chars: number): number {
-  return Math.ceil(chars / 3.5)
+  return Math.ceil(chars / 3.2)
+}
+
+/**
+ * Fenetre de contexte EFFECTIVE, plafonnee a une valeur PRATIQUE.
+ * Meme si un modele annonce 1M, l'app (rendu Electron) rame bien avant ; on compacte
+ * a un seuil atteignable pour rester fluide. Les petites fenetres ne sont pas affectees.
+ */
+export const MAX_EFFECTIVE_CONTEXT = 180_000
+export function effectiveWindow(realWindow: number): number {
+  return Math.min(realWindow, MAX_EFFECTIVE_CONTEXT)
 }
 
 /**

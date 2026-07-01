@@ -16,7 +16,7 @@ import type {
   UiToolEntry
 } from '@shared/types'
 import { translate, type Lang } from '@shared/i18n'
-import { contextWindowFor, estimateTokens, getPreset, messagesChars } from '@shared/providers'
+import { contextWindowFor, effectiveWindow, estimateTokens, getPreset, messagesChars } from '@shared/providers'
 
 export type View = 'chat' | 'code' | 'settings'
 export type Section = 'chat' | 'code'
@@ -75,7 +75,7 @@ interface AppState {
   setLang: (lang: Lang) => void
   refreshSshHosts: () => Promise<void>
   addRecentDir: (key: string, path: string) => void
-  contextUsage: (id: string) => { used: number; window: number; pct: number }
+  contextUsage: (id: string) => { used: number; window: number; pct: number; modelWindow: number }
   toggleTasks: () => void
   clearTasks: () => void
   dismissUpdate: () => void
@@ -103,6 +103,8 @@ interface AppState {
 
   send: (id: string, text: string, attachments?: ComposerAttachment[]) => Promise<void>
   cancel: (id: string) => void
+  /** Arrête TOUT travail en cours (streams/agents/sous-agents) de toutes les conversations. */
+  cancelAll: () => void
   approve: (id: string, callId: string, approved: boolean) => void
   approveAlways: (id: string, callId: string) => void
   compact: (id: string) => Promise<void>
@@ -261,6 +263,12 @@ export const useApp = create<AppState>((set, get) => {
   const handleEvent = (e: ChatEvent): void => {
     const entry = Object.values(get().conversations).find((c) => c.streamId === e.streamId)
     if (!entry) return
+    // Usage REEL remonte en direct (pendant le tour) : maj immediate de la taille du contexte.
+    if (e.type === 'usage') {
+      const tok = (e.usage.inputTokens ?? 0) + (e.usage.outputTokens ?? 0)
+      if (tok > 0) patch(entry.id, (c) => ({ ...c, contextTokens: tok }))
+      return
+    }
     const ph = phaseFor(e)
     patch(entry.id, (c) => ({ ...reduceConv(c, e), ...(ph !== undefined ? { phase: ph } : {}) }))
     // « Accepter les modifications » : approuve automatiquement les actions sensibles.
@@ -368,11 +376,12 @@ export const useApp = create<AppState>((set, get) => {
 
     contextUsage: (id) => {
       const c = get().conversations[id]
-      const window = selectedWindow()
-      // Plancher = tokens REELS du dernier echange API ; l'estimation (outils inclus) capte
-      // ce que l'utilisateur a ajoute depuis (gros collage, etc.). On prend le max des deux.
+      const modelWindow = selectedWindow()
+      // Jauge + compactage bornes a la fenetre EFFECTIVE (plafonnee) : sinon 1M => jauge qui
+      // monte a peine et compactage jamais atteint. On garde `modelWindow` pour l'info.
+      const window = effectiveWindow(modelWindow)
       const used = Math.max(c?.contextTokens ?? 0, estimateTokens(c ? messagesChars(c.messages) : 0))
-      return { used, window, pct: Math.min(100, Math.round((used / window) * 100)) }
+      return { used, window, pct: Math.min(100, Math.round((used / window) * 100)), modelWindow }
     },
 
     bootstrap: async () => {
@@ -550,8 +559,8 @@ export const useApp = create<AppState>((set, get) => {
       const sel = get().selected
       if ((!typed && attachments.length === 0) || !conv || conv.busy || !sel) return
 
-      // Compactage automatique quand on approche la fenetre de contexte (tokens REELS si dispo).
-      const ctxWindow = selectedWindow()
+      // Compactage automatique quand on approche la fenetre EFFECTIVE (plafonnee, sinon jamais atteinte).
+      const ctxWindow = effectiveWindow(selectedWindow())
       const usedTokens = Math.max(conv.contextTokens ?? 0, estimateTokens(estimateChars(conv.messages)))
       // Compactage anticipe (75%) : garde l'agent vif avant que le contexte ne sature.
       if (usedTokens > ctxWindow * 0.75) await get().compact(id)
@@ -617,6 +626,13 @@ export const useApp = create<AppState>((set, get) => {
       if (c?.streamId) window.api.chat.cancel(c.streamId)
       patch(id, (x) => ({ ...x, busy: false, streamId: null, messages: x.messages.map((m, i) => (i === x.messages.length - 1 ? { ...m, streaming: false } : m)) }))
       persist(id)
+    },
+
+    // Arrête TOUT (utile : « nouveau projet » ne stoppe pas l'ancien tour/sous-agents qui rament).
+    cancelAll: () => {
+      for (const c of Object.values(get().conversations)) {
+        if (c.streamId) get().cancel(c.id)
+      }
     },
 
     approve: (id, callId, approved) => {
