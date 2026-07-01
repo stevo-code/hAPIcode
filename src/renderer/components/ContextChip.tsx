@@ -45,6 +45,7 @@ export function ContextChip({ convId }: { convId: string }): JSX.Element | null 
   const conv = useApp((s) => s.conversations[convId])
   const selected = useApp((s) => s.selected)
   const contextUsage = useApp((s) => s.contextUsage)
+  const compact = useApp((s) => s.compact)
   const [open, setOpen] = useState(false)
   if (!conv || !selected) return null
 
@@ -81,6 +82,17 @@ export function ContextChip({ convId }: { convId: string }): JSX.Element | null 
               {modelWindow > window ? ` · ${t('modelWindowLabel')} ${fmtTokens(modelWindow)}` : ''}
             </div>
             {modelWindow > window && <div className="ctx-pop-foot muted">{t('effectiveNote')}</div>}
+            {/* Compactage MANUEL (le compactage auto reste actif au fil des messages). */}
+            <button
+              className="ctx-compact-btn"
+              onClick={() => {
+                setOpen(false)
+                compact(convId)
+              }}
+              disabled={!!conv.compacting || conv.messages.length < 2}
+            >
+              🗜 {conv.compacting ? t('compacting') : t('compactNow')}
+            </button>
           </div>
         </>
       )}

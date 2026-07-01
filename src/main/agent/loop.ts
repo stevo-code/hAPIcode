@@ -151,7 +151,7 @@ export async function runAgent(o: AgentOptions): Promise<void> {
         cmdTask = call.id
         tasks.create({ id: cmdTask, kind: 'command', title: String((call.arguments as { command?: string }).command ?? '').slice(0, 80) })
       }
-      const r = o.ssh ? await executeToolSsh(o.ssh.sessionId, o.ssh.cwd, call, o.signal) : await executeTool(o.workdir!, call)
+      const r = o.ssh ? await executeToolSsh(o.ssh.sessionId, o.ssh.cwd, call, o.signal) : await executeTool(o.workdir!, call, o.signal)
       if (cmdTask) tasks.update(cmdTask, { status: r.isError ? 'error' : 'done', detail: r.result.slice(0, 240) })
       setResult(call.id, r.result, r.isError)
     }

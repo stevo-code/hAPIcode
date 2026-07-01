@@ -345,6 +345,7 @@ export const useApp = create<AppState>((set, get) => {
     archiveConversation: (id) => {
       const c = get().conversations[id]
       if (!c) return
+      if (c.streamId) window.api.chat.cancel(c.streamId) // stoppe l'agent avant d'archiver
       patch(id, (x) => ({ ...x, archived: true }))
       persist(id)
       const rest = Object.values(get().conversations)
@@ -430,6 +431,11 @@ export const useApp = create<AppState>((set, get) => {
     setView: (view) => set({ view }),
 
     newConversation: (section) => {
+      // « Nouveau projet » : stoppe le tour en cours du projet actif de cette section, sinon
+      // l'ancien agent continue a tourner en fond (l'utilisateur croit repartir a zero mais ca rame).
+      const prevId = section === 'chat' ? get().activeChatId : get().activeCodeId
+      const prev = prevId ? get().conversations[prevId] : undefined
+      if (prev?.streamId) get().cancel(prev.id)
       const id = crypto.randomUUID()
       const color = PALETTE[Object.keys(get().conversations).length % PALETTE.length]
       const conv: RuntimeConv = {
@@ -460,6 +466,8 @@ export const useApp = create<AppState>((set, get) => {
     deleteConversation: (id) => {
       const c = get().conversations[id]
       if (!c) return
+      // CRUCIAL : stoppe l'agent en cours, sinon il continue a tourner en fond (zombie) apres suppression.
+      if (c.streamId) window.api.chat.cancel(c.streamId)
       const rest = { ...get().conversations }
       delete rest[id]
       window.api.conversations.remove(id)

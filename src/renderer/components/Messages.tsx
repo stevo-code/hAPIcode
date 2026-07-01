@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { memo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { UiMessage } from '@shared/types'
@@ -21,7 +21,9 @@ export function Messages({ messages, onApprove, onApproveAlways }: Props): JSX.E
   )
 }
 
-function Bubble({
+// Mémoïsé : pendant le streaming, seul le DERNIER message change (les autres gardent leur
+// référence via patchLast) -> les anciennes bulles ne re-parsent plus leur markdown a chaque token.
+const Bubble = memo(function Bubble({
   m,
   onApprove,
   onApproveAlways
@@ -73,7 +75,7 @@ function Bubble({
       </div>
     </div>
   )
-}
+})
 
 function ReasoningBlock({ text, streaming }: { text: string; streaming?: boolean }): JSX.Element {
   const [open, setOpen] = useState(false)

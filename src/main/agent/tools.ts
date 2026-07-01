@@ -118,7 +118,7 @@ function safePath(workdir: string, p: string | undefined): string {
   return abs
 }
 
-export async function executeTool(workdir: string, call: ToolCall): Promise<ToolResult> {
+export async function executeTool(workdir: string, call: ToolCall, signal?: AbortSignal): Promise<ToolResult> {
   try {
     const a = call.arguments ?? {}
     switch (call.name) {
@@ -144,7 +144,7 @@ export async function executeTool(workdir: string, call: ToolCall): Promise<Tool
         return { result: `Ecrit : ${a.path} (${String(a.content ?? '').length} caracteres)`, isError: false }
       }
       case 'run_command': {
-        return await runCommand(workdir, String(a.command ?? ''))
+        return await runCommand(workdir, String(a.command ?? ''), signal)
       }
       default:
         return { result: `Outil inconnu : ${call.name}`, isError: true }
@@ -199,7 +199,7 @@ export async function executeToolSsh(sessionId: string, cwd: string, call: ToolC
   }
 }
 
-function runCommand(workdir: string, command: string): Promise<ToolResult> {
+function runCommand(workdir: string, command: string, signal?: AbortSignal): Promise<ToolResult> {
   return new Promise((resolveP) => {
     // IMPORTANT (Windows) : on utilise `exec` (et NON execFile('cmd.exe',['/c',cmd])).
     // execFile re-echappe les guillemets en \" que cmd.exe NE comprend pas -> `dir "x"`
@@ -208,14 +208,19 @@ function runCommand(workdir: string, command: string): Promise<ToolResult> {
     // On force aussi la console en UTF-8 (chcp 65001) pour les noms de fichiers accentues.
     const isWin = process.platform === 'win32'
     const toRun = isWin ? `chcp 65001 >nul & ${command}` : command
+    // `signal` : a l'annulation (Stop / suppression de conv), Node tue l'enfant (plus de commande
+    // locale qui tourne dans le vide jusqu'au timeout de 120s).
     exec(
       toRun,
-      { cwd: workdir, timeout: 120000, maxBuffer: 10 * 1024 * 1024, windowsHide: true },
+      { cwd: workdir, timeout: 120000, maxBuffer: 10 * 1024 * 1024, windowsHide: true, signal },
       (err, stdout, stderr) => {
+        const aborted = (err as { name?: string } | null)?.name === 'AbortError'
         const code = err && typeof (err as { code?: number }).code === 'number' ? (err as { code: number }).code : err ? 1 : 0
         const out = `${stdout || ''}${stderr ? `\n[stderr]\n${stderr}` : ''}`.trim()
-        const body = `$ ${command}\n(exit ${code})\n${out || '(aucune sortie)'}`
-        resolveP({ result: body.slice(0, 12000), isError: code !== 0 })
+        const body = aborted
+          ? `$ ${command}\n(annulé)`
+          : `$ ${command}\n(exit ${code})\n${out || '(aucune sortie)'}`
+        resolveP({ result: body.slice(0, 12000), isError: aborted || code !== 0 })
       }
     )
   })

@@ -1573,6 +1573,31 @@ button {
   margin-top: 8px;
   font-size: 12px;
 }
+/* Bouton « Compacter maintenant » dans le popover de contexte. */
+.ctx-compact-btn {
+  margin-top: 12px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: #fff;
+  border-radius: 8px;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: filter 0.12s;
+}
+.ctx-compact-btn:hover {
+  filter: brightness(1.1);
+}
+.ctx-compact-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+  filter: none;
+}
 
 /* Items du menu modeles : nom + fenetre + coche */
 .menu-item.model-item {

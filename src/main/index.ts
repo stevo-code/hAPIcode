@@ -313,6 +313,8 @@ function registerIpc(): void {
     const requestApproval = (callId: string): Promise<boolean> =>
       new Promise((resolveApproval) => {
         active.approvals.set(callId, resolveApproval)
+        // Deblocage a l'abort (Stop/suppression) : ne reste JAMAIS bloque sur une approbation en attente.
+        active.controller.signal.addEventListener('abort', () => resolveApproval(false), { once: true })
       })
 
     let lastUsage: import('@shared/types').TokenUsage | undefined

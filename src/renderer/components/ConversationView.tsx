@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Compaction, ComposerAttachment } from '@shared/types'
@@ -77,6 +77,10 @@ export function ConversationView({ convId }: { convId: string }): JSX.Element {
     ta.style.height = 'auto'
     ta.style.height = `${Math.min(ta.scrollHeight, 220)}px`
   }, [input])
+
+  // Callbacks STABLES (useCallback) : sinon la mémoïsation des bulles (React.memo) est inutile.
+  const onApprove = useCallback((callId: string, ok: boolean) => approve(convId, callId, ok), [approve, convId])
+  const onApproveAlways = useCallback((callId: string) => approveAlways(convId, callId), [approveAlways, convId])
 
   if (!conv) return <div className="conversation" />
 
@@ -184,11 +188,7 @@ export function ConversationView({ convId }: { convId: string }): JSX.Element {
                 </div>
               </div>
             )}
-            <Messages
-              messages={conv.messages}
-              onApprove={(callId, ok) => approve(convId, callId, ok)}
-              onApproveAlways={(callId) => approveAlways(convId, callId)}
-            />
+            <Messages messages={conv.messages} onApprove={onApprove} onApproveAlways={onApproveAlways} />
           </div>
 
           <div className="composer-wrap">
