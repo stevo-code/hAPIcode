@@ -37,6 +37,10 @@ function clean(c: Conversation): Conversation {
       role: m.role,
       content: m.content,
       reasoning: m.reasoning,
+      // `blocks` contient les appels d'outils ET leurs RESULTATS : indispensable pour que le
+      // contexte survive a un redemarrage (sinon l'agent reperd tout et refait le travail).
+      // (Les `attachments` images base64 restent NON persistes pour ne pas gonfler le fichier.)
+      blocks: m.blocks,
       tools: m.tools,
       error: m.error
     }))
