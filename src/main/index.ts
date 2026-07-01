@@ -321,6 +321,7 @@ function registerIpc(): void {
     runAgent({
       ctx,
       model: req.model,
+      convId: req.convId,
       system: req.system,
       messages,
       temperature: req.temperature,

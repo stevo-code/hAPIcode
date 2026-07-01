@@ -419,6 +419,14 @@ export const useApp = create<AppState>((set, get) => {
       })
       await get().refreshCredentials()
       await get().refreshModels()
+      // Modele PAR conversation : au demarrage, applique celui de la conversation active si dispo.
+      {
+        const av = get().view === 'code' ? get().activeCodeId : get().activeChatId
+        const cv = av ? get().conversations[av] : undefined
+        if (cv?.credentialId && cv.model && get().models.some((m) => m.credentialId === cv.credentialId && m.id === cv.model)) {
+          set({ selected: { credentialId: cv.credentialId, model: cv.model } })
+        }
+      }
       // Mise a jour : verification non bloquante au demarrage (jamais d'installation auto).
       window.api.app
         .checkUpdate()
@@ -431,13 +439,10 @@ export const useApp = create<AppState>((set, get) => {
     setView: (view) => set({ view }),
 
     newConversation: (section) => {
-      // « Nouveau projet » : stoppe le tour en cours du projet actif de cette section, sinon
-      // l'ancien agent continue a tourner en fond (l'utilisateur croit repartir a zero mais ca rame).
-      const prevId = section === 'chat' ? get().activeChatId : get().activeCodeId
-      const prev = prevId ? get().conversations[prevId] : undefined
-      if (prev?.streamId) get().cancel(prev.id)
+      // NE PAS annuler les autres conversations : elles peuvent travailler EN PARALLELE.
       const id = crypto.randomUUID()
       const color = PALETTE[Object.keys(get().conversations).length % PALETTE.length]
+      const sel = get().selected
       const conv: RuntimeConv = {
         id,
         section,
@@ -445,6 +450,9 @@ export const useApp = create<AppState>((set, get) => {
         createdAt: Date.now(),
         updatedAt: Date.now(),
         color,
+        // Modele PAR conversation : herite du modele courant comme defaut (sans toucher aux autres).
+        credentialId: sel?.credentialId,
+        model: sel?.model,
         messages: [],
         busy: false,
         streamId: null
@@ -461,6 +469,10 @@ export const useApp = create<AppState>((set, get) => {
       const c = get().conversations[id]
       if (!c) return
       set({ view: c.section, ...(c.section === 'chat' ? { activeChatId: id } : { activeCodeId: id }) })
+      // Restaure le modele PROPRE a cette conversation (s'il est encore disponible) — modele par conv.
+      if (c.credentialId && c.model && get().models.some((m) => m.credentialId === c.credentialId && m.id === c.model)) {
+        set({ selected: { credentialId: c.credentialId, model: c.model } })
+      }
     },
 
     deleteConversation: (id) => {
@@ -529,6 +541,13 @@ export const useApp = create<AppState>((set, get) => {
     select: (selected) => {
       set({ selected })
       window.api.settings.set({ lastCredentialId: selected.credentialId, lastModel: selected.model })
+      // Enregistre le modele sur la conversation ACTIVE uniquement (modele par conversation).
+      const section: Section = get().view === 'code' ? 'code' : 'chat'
+      const activeId = section === 'chat' ? get().activeChatId : get().activeCodeId
+      if (activeId && get().conversations[activeId]) {
+        patch(activeId, (c) => ({ ...c, credentialId: selected.credentialId, model: selected.model }))
+        persist(activeId)
+      }
     },
 
     setReasoning: (reasoning) => {
@@ -618,6 +637,7 @@ export const useApp = create<AppState>((set, get) => {
 
       await window.api.chat.start({
         clientStreamId: streamId,
+        convId: id,
         credentialId: sel.credentialId,
         model: sel.model,
         messages: outgoing,

@@ -47,19 +47,22 @@ export function BackgroundTasksPanel(): JSX.Element {
   const tasks = useApp((s) => s.backgroundTasks)
   const toggle = useApp((s) => s.toggleTasks)
   const clear = useApp((s) => s.clearTasks)
-  const cancelAll = useApp((s) => s.cancelAll)
+  const cancel = useApp((s) => s.cancel)
+  const activeId = useApp((s) => (s.view === 'code' ? s.activeCodeId : s.activeChatId))
   const width = useApp((s) => s.tasksWidth)
   const [, setTick] = useState(0)
 
+  // UNIQUEMENT les tâches de la conversation ACTIVE (fini le « transfert » entre conversations).
+  const mine = tasks.filter((tk) => tk.convId === activeId)
   // Tâches EN COURS toujours en haut ; au sein de chaque groupe, la plus récente d'abord.
-  const sorted = [...tasks].sort((a, b) => {
+  const sorted = [...mine].sort((a, b) => {
     const ra = a.status === 'running' ? 0 : 1
     const rb = b.status === 'running' ? 0 : 1
     return ra - rb || b.startedAt - a.startedAt
   })
 
   // Met à jour le chrono des tâches en cours en TEMPS RÉEL (re-render chaque seconde).
-  const hasRunning = tasks.some((tk) => tk.status === 'running')
+  const hasRunning = mine.some((tk) => tk.status === 'running')
   useEffect(() => {
     if (!hasRunning) return
     const id = setInterval(() => setTick((n) => n + 1), 1000)
@@ -71,9 +74,9 @@ export function BackgroundTasksPanel(): JSX.Element {
       <div className="tasks-head">
         <span className="tasks-title">{t('backgroundTasks')}</span>
         <div className="titlebar-spacer" />
-        {hasRunning && (
-          <button className="ghost-btn small stop-run" onClick={cancelAll} title={t('stopAll')}>
-            ■ {t('stopAll')}
+        {hasRunning && activeId && (
+          <button className="ghost-btn small stop-run" onClick={() => cancel(activeId)} title={t('stop')}>
+            {t('stop')}
           </button>
         )}
         <button className="ghost-btn small" onClick={clear}>

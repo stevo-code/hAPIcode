@@ -7,6 +7,8 @@ import * as tasks from './tasks'
 export interface AgentOptions {
   ctx: ProviderContext
   model: string
+  /** Conversation d'origine (pour attribuer les taches en arriere-plan). */
+  convId?: string
   system?: string
   messages: AgentMessage[]
   temperature?: number
@@ -113,7 +115,7 @@ export async function runAgent(o: AgentOptions): Promise<void> {
         continue
       }
       const desc = String((call.arguments as { description?: string }).description ?? '')
-      tasks.create({ id: call.id, kind: 'subagent', title: desc.slice(0, 80) || 'Sous-agent', agentCount: 1 })
+      tasks.create({ id: call.id, kind: 'subagent', title: desc.slice(0, 80) || 'Sous-agent', agentCount: 1, convId: o.convId })
       spawnPromises.push(
         runSubAgent(o, desc, depth)
           .then((text) => {
@@ -149,7 +151,7 @@ export async function runAgent(o: AgentOptions): Promise<void> {
       let cmdTask: string | null = null
       if (call.name === 'run_command') {
         cmdTask = call.id
-        tasks.create({ id: cmdTask, kind: 'command', title: String((call.arguments as { command?: string }).command ?? '').slice(0, 80) })
+        tasks.create({ id: cmdTask, kind: 'command', title: String((call.arguments as { command?: string }).command ?? '').slice(0, 80), convId: o.convId })
       }
       const r = o.ssh ? await executeToolSsh(o.ssh.sessionId, o.ssh.cwd, call, o.signal) : await executeTool(o.workdir!, call, o.signal)
       if (cmdTask) tasks.update(cmdTask, { status: r.isError ? 'error' : 'done', detail: r.result.slice(0, 240) })
@@ -179,6 +181,7 @@ async function runSubAgent(o: AgentOptions, description: string, depth: number):
   await runAgent({
     ctx: o.ctx,
     model: o.model,
+    convId: o.convId,
     system: `${o.system ?? ''}\n\nTu es un SOUS-AGENT autonome. Accomplis UNIQUEMENT la sous-tache demandee, puis termine par un resume concis de ce que tu as fait (fichiers crees/modifies, resultat).`,
     messages: [{ role: 'user', content: description }],
     temperature: o.temperature,

@@ -109,6 +109,8 @@ export interface ChatStartRequest {
   reasoningEffort?: ReasoningEffort
   /** Identifiant de stream genere cote renderer (evite une course sur les premiers evenements). */
   clientStreamId?: string
+  /** Conversation d'origine (pour attribuer les taches en arriere-plan). */
+  convId?: string
   /** Dossier de travail (section Code) pour activer les outils agent. */
   workdir?: string
   /** Active la boucle agent avec outils (lecture/ecriture/commande). */
@@ -247,6 +249,8 @@ export interface BgTask {
   detail?: string
   /** Nombre d'agents impliques (pour les sous-agents). */
   agentCount?: number
+  /** Conversation d'origine (pour n'afficher que les taches de la conversation active). */
+  convId?: string
 }
 
 /* --------------------------------- Reglages ----------------------------------- */

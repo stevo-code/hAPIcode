@@ -18,7 +18,7 @@ export function list(): BgTask[] {
   return tasks.slice()
 }
 
-export function create(t: { id: string; kind: BgTask['kind']; title: string; agentCount?: number }): string {
+export function create(t: { id: string; kind: BgTask['kind']; title: string; agentCount?: number; convId?: string }): string {
   const task: BgTask = { status: 'running', startedAt: Date.now(), ...t }
   tasks.unshift(task)
   if (tasks.length > 200) tasks.length = 200
