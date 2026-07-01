@@ -178,7 +178,7 @@ export function estimateTokens(chars: number): number {
  * Meme si un modele annonce 1M, l'app (rendu Electron) rame bien avant ; on compacte
  * a un seuil atteignable pour rester fluide. Les petites fenetres ne sont pas affectees.
  */
-export const MAX_EFFECTIVE_CONTEXT = 180_000
+export const MAX_EFFECTIVE_CONTEXT = 500_000
 export function effectiveWindow(realWindow: number): number {
   return Math.min(realWindow, MAX_EFFECTIVE_CONTEXT)
 }

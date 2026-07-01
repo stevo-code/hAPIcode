@@ -89,7 +89,7 @@ export function ContextChip({ convId }: { convId: string }): JSX.Element | null 
                 setOpen(false)
                 compact(convId)
               }}
-              disabled={!!conv.compacting || conv.messages.length < 2}
+              disabled={!!conv.compacting || conv.messages.length < 6}
             >
               🗜 {conv.compacting ? t('compacting') : t('compactNow')}
             </button>

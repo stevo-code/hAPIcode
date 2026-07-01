@@ -373,14 +373,15 @@ function registerIpc(): void {
         ctx,
         {
           model: req.model,
-          maxTokens: 8000,
+          maxTokens: 16000,
           system:
-            'Tu produis un RESUME DETAILLE d\'une session de travail (chat ou agent de code) destine a REMPLACER l\'historique tout en conservant le MAXIMUM de contexte utile pour continuer sans rien perdre. ' +
-            'Structure en markdown avec ces sections quand elles sont pertinentes : ' +
-            '## Objectif · ## Ce qui a ete fait (etape par etape) · ## Decisions et raisons · ## Fichiers crees ou modifies · ## Commandes clefs et resultats · ## Etat actuel · ## Prochaines etapes · ## Notes et pieges a retenir. ' +
-            'Sois PRECIS et EXHAUSTIF sur les faits concrets : noms de fichiers, chemins, fonctions, valeurs, parametres, erreurs rencontrees ET leurs corrections. ' +
-            'Conserve les extraits de code importants tels quels. Ne resume pas a outrance : ce texte est la seule memoire qui survivra. Reponds dans la langue de l\'utilisateur.',
-          messages: [{ role: 'user', content: `Resume EN DETAIL cette session de travail :\n\n${transcript}` }]
+            'Tu produis le RELEVE D\'ETAT d\'une session d\'agent de code, destine a permettre a l\'agent de CONTINUER EXACTEMENT ou il en etait — SANS refaire le travail deja fait. ' +
+            'Ce texte remplace l\'historique : tout ce que tu n\'ecris PAS est PERDU a jamais. Donc sois EXHAUSTIF, pas concis. ' +
+            'Structure en markdown : ' +
+            '## Objectif global · ## Ce qui est DEJA FAIT (liste precise, pour ne PAS le refaire) · ## Etat EXACT de chaque fichier cree/modifie (chemin + ce qui a change + extraits de code clefs verbatim) · ## Commandes deja executees + leur resultat · ## Decisions prises et pourquoi · ## Ou on en est PRECISEMENT maintenant · ## LA prochaine action a faire (concrete) · ## Pieges/erreurs rencontrees a ne pas refaire. ' +
+            'Cite les noms de fichiers, chemins, fonctions, numeros de ligne, valeurs et extraits de code EXACTS. ' +
+            'REGLE ABSOLUE : un agent qui lit ce releve doit pouvoir reprendre sans relire les fichiers ni recommencer. Reponds dans la langue de l\'utilisateur.',
+          messages: [{ role: 'user', content: `Fais le releve d'etat COMPLET de cette session pour la reprendre sans rien refaire :\n\n${transcript}` }]
         },
         { onText: () => {}, onReasoning: () => {} }
       )

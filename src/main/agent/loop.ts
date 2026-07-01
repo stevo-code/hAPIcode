@@ -60,7 +60,7 @@ function trimContext(messages: AgentMessage[], model: string): void {
 
 // L'agent racine peut enchainer beaucoup d'etapes (taches longues : analyse, refactor…).
 // Les sous-agents restent plus limites pour eviter l'emballement.
-const MAX_ITERS_ROOT = 80
+const MAX_ITERS_ROOT = 160
 const MAX_ITERS_SUB = 25
 const MAX_DEPTH = 2
 

@@ -289,6 +289,25 @@ export const useApp = create<AppState>((set, get) => {
   // en mode agent, ou les sorties d'outils dominent le contexte).
   const estimateChars = (msgs: UiMessage[]): number => messagesChars(msgs)
 
+  // Contenu d'un message POUR LE MODELE : inclut les OUTILS + leurs RESULTATS. Sans ca, sur
+  // « continue » (ou nouveau tour), le modele ne recoit que sa narration et REFAIT tout le
+  // travail (il ne voit pas ce que ses read_file/run_command ont renvoye) — grosse perte de contexte.
+  const toApiContent = (m: UiMessage): string => {
+    if (m.role !== 'assistant' || !m.blocks?.length) return m.content
+    let out = ''
+    for (const b of m.blocks) {
+      if (b.type === 'text') {
+        out += b.text
+        continue
+      }
+      const t = b.tool
+      const args = t.args == null ? '' : typeof t.args === 'string' ? t.args : JSON.stringify(t.args)
+      const res = t.result ?? (t.status === 'denied' ? '(action refusée)' : '(sans résultat)')
+      out += `\n\n[${t.tool}${args ? ` ${args}` : ''}]\n${res}\n`
+    }
+    return out
+  }
+
   // Fenetre de contexte du modele selectionne : valeur REELLE de l'API si dispo, sinon heuristique.
   const selectedWindow = (): number => {
     const sel = get().selected
@@ -629,9 +648,9 @@ export const useApp = create<AppState>((set, get) => {
       const providerName = getPreset(cred?.providerId ?? '')?.name ?? cred?.label ?? 'API'
       const endpoint = cred?.baseUrl ?? ''
 
-      // Historique en texte + message courant (texte plié + images).
+      // Historique AVEC outils+resultats (sinon perte de contexte en « continue ») + message courant.
       const outgoing = [
-        ...history.map((m) => ({ role: m.role, content: m.content })),
+        ...history.map((m) => ({ role: m.role, content: toApiContent(m) })),
         { role: 'user' as const, content: sentContent, images: images.length ? images : undefined }
       ]
 
@@ -694,13 +713,18 @@ export const useApp = create<AppState>((set, get) => {
     compact: async (id) => {
       const c = get().conversations[id]
       const sel = get().selected
-      if (!c || !sel || c.messages.length < 2) return
+      if (!c || !sel || c.messages.length < 6) return
       patch(id, (x) => ({ ...x, compacting: true }))
       try {
+        // On GARDE les derniers échanges TELS QUELS (contexte récent exact) et on ne résume
+        // QUE l'ancien -> l'agent ne « repart pas de zéro » après compactage.
+        const KEEP_RECENT = 6
+        const older = c.messages.slice(0, c.messages.length - KEEP_RECENT)
+        const recent = c.messages.slice(c.messages.length - KEEP_RECENT)
         const summary = await window.api.chat.summarize({
           credentialId: sel.credentialId,
           model: sel.model,
-          messages: c.messages.map((m) => ({ role: m.role, content: m.content }))
+          messages: older.map((m) => ({ role: m.role, content: toApiContent(m) }))
         })
         const compaction = { id: crypto.randomUUID(), at: Date.now(), title: compactionTitle(summary), summary }
         patch(id, (x) => ({
@@ -711,7 +735,9 @@ export const useApp = create<AppState>((set, get) => {
           compactions: [...(x.compactions ?? []), compaction],
           messages: [
             { role: 'user', content: `${translate(get().lang, 'compactSummaryIntro')}\n\n${summary}` },
-            { role: 'assistant', content: translate(get().lang, 'compactAck') }
+            { role: 'assistant', content: translate(get().lang, 'compactAck') },
+            // Les derniers messages, intacts.
+            ...recent
           ]
         }))
         persist(id)
