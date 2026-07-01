@@ -37,6 +37,19 @@ function Bubble({
     <div className={`msg msg-${m.role} ${m.error ? 'msg-error' : ''}`}>
       <div className="msg-role">{m.role === 'user' ? t('you') : t('assistantRole')}</div>
       <div className="msg-body">
+        {m.attachments?.length ? (
+          <div className="msg-attachments">
+            {m.attachments.map((a, i) =>
+              a.kind === 'image' && a.dataUrl ? (
+                <img key={i} src={a.dataUrl} alt={a.name} className="msg-attach-img" title={a.name} />
+              ) : (
+                <span key={i} className="msg-attach-file" title={a.name}>
+                  📄 {a.name}
+                </span>
+              )
+            )}
+          </div>
+        ) : null}
         {m.reasoning && <ReasoningBlock text={m.reasoning} streaming={m.streaming && !m.content} />}
         {hasBlocks ? (
           // Texte et commandes ENTRELACÉS dans l'ordre chronologique.

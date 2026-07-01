@@ -48,6 +48,8 @@ export interface RendererApi {
     selectFile(): Promise<string | null>
     listDir(dir: string): Promise<DirEntry[]>
     readFile(file: string): Promise<string>
+    /** Lit un fichier binaire (image) en base64 + type MIME. */
+    readFileBase64(file: string): Promise<{ mime: string; data: string }>
     writeFile(file: string, content: string): Promise<void>
     homeDir(): Promise<string>
   }

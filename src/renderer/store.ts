@@ -6,9 +6,11 @@ import type {
   Conversation,
   ConvTarget,
   Credential,
+  ComposerAttachment,
   ModelInfo,
   ReasoningEffort,
   SavedSshHost,
+  UiAttachment,
   UiBlock,
   UiMessage,
   UiToolEntry
@@ -99,7 +101,7 @@ interface AppState {
   refreshCredentials: () => Promise<void>
   refreshModels: () => Promise<void>
 
-  send: (id: string, text: string) => Promise<void>
+  send: (id: string, text: string, attachments?: ComposerAttachment[]) => Promise<void>
   cancel: (id: string) => void
   approve: (id: string, callId: string, approved: boolean) => void
   approveAlways: (id: string, callId: string) => void
@@ -227,8 +229,8 @@ export const useApp = create<AppState>((set, get) => {
           ...c,
           messages: patchLast((m) => ({
             ...m,
-            content: m.content + `\n\n⚠️ Erreur : ${e.message}`,
-            blocks: appendTextBlock(m.blocks, `\n\n⚠️ Erreur : ${e.message}`),
+            content: m.content + `\n\n${translate(get().lang, 'errorPrefix')}${e.message}`,
+            blocks: appendTextBlock(m.blocks, `\n\n${translate(get().lang, 'errorPrefix')}${e.message}`),
             streaming: false,
             error: true
           }))
@@ -293,7 +295,7 @@ export const useApp = create<AppState>((set, get) => {
       .split('\n')
       .map((l) => l.replace(/^[#>*\-\s]+/, '').trim())
       .find((l) => l.length > 2)
-    return (line ?? '').slice(0, 70) || 'Compactage'
+    return (line ?? '').slice(0, 70) || translate(get().lang, 'compactionDone')
   }
 
   /* --------------------------------- etat initial ------------------------------ */
@@ -542,11 +544,11 @@ export const useApp = create<AppState>((set, get) => {
       }
     },
 
-    send: async (id, text) => {
-      const content = text.trim()
+    send: async (id, text, attachments = []) => {
+      const typed = text.trim()
       const conv = get().conversations[id]
       const sel = get().selected
-      if (!content || !conv || conv.busy || !sel) return
+      if ((!typed && attachments.length === 0) || !conv || conv.busy || !sel) return
 
       // Compactage automatique quand on approche la fenetre de contexte (tokens REELS si dispo).
       const ctxWindow = selectedWindow()
@@ -556,14 +558,25 @@ export const useApp = create<AppState>((set, get) => {
       const current = get().conversations[id]
       const history = current.messages
 
+      // Fichiers texte -> plies dans le contenu ENVOYE ; images -> parts multimodales.
+      const files = attachments.filter((a) => a.kind === 'file' && a.text)
+      const images = attachments
+        .filter((a) => a.kind === 'image' && a.mime && a.data)
+        .map((a) => ({ mime: a.mime as string, data: a.data as string }))
+      let sentContent = typed
+      for (const f of files) sentContent += `${sentContent ? '\n\n' : ''}--- ${f.name} ---\n${f.text}\n--- end ---`
+
+      const uiAttachments: UiAttachment[] = attachments.map((a) => ({ name: a.name, kind: a.kind, dataUrl: a.dataUrl }))
+
       const isFirst = history.length === 0
       const streamId = crypto.randomUUID()
-      const userMsg: UiMessage = { role: 'user', content }
+      // Le message UI montre ce que l'utilisateur a tapé + les pastilles (pas le contenu déversé).
+      const userMsg: UiMessage = { role: 'user', content: typed, attachments: uiAttachments.length ? uiAttachments : undefined }
       const assistant: UiMessage = { role: 'assistant', content: '', streaming: true, blocks: [] }
 
       patch(id, (c) => ({
         ...c,
-        title: isFirst ? content.slice(0, 48) : c.title,
+        title: isFirst ? typed.slice(0, 48) || uiAttachments[0]?.name || c.title : c.title,
         model: sel.model,
         messages: [...history, userMsg, assistant],
         busy: true,
@@ -580,11 +593,17 @@ export const useApp = create<AppState>((set, get) => {
       const providerName = getPreset(cred?.providerId ?? '')?.name ?? cred?.label ?? 'API'
       const endpoint = cred?.baseUrl ?? ''
 
+      // Historique en texte + message courant (texte plié + images).
+      const outgoing = [
+        ...history.map((m) => ({ role: m.role, content: m.content })),
+        { role: 'user' as const, content: sentContent, images: images.length ? images : undefined }
+      ]
+
       await window.api.chat.start({
         clientStreamId: streamId,
         credentialId: sel.credentialId,
         model: sel.model,
-        messages: [...history, userMsg].map((m) => ({ role: m.role, content: m.content })),
+        messages: outgoing,
         system: buildSystem(conv, sel.model, providerName, endpoint, get().reasoning),
         reasoningEffort: get().reasoning,
         workdir,
@@ -647,8 +666,8 @@ export const useApp = create<AppState>((set, get) => {
           // Chapitre conserve : consultable, et les notes survivent.
           compactions: [...(x.compactions ?? []), compaction],
           messages: [
-            { role: 'user', content: `Contexte resume de notre conversation precedente :\n\n${summary}` },
-            { role: 'assistant', content: 'Compris, je continue avec ce contexte.' }
+            { role: 'user', content: `${translate(get().lang, 'compactSummaryIntro')}\n\n${summary}` },
+            { role: 'assistant', content: translate(get().lang, 'compactAck') }
           ]
         }))
         persist(id)

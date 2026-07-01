@@ -193,7 +193,14 @@ function mapOpenAiMessages(p: TurnParams): any[] {
   if (p.system) out.push({ role: 'system', content: p.system })
   for (const m of p.messages) {
     if (m.role === 'user') {
-      out.push({ role: 'user', content: m.content })
+      if (m.images?.length) {
+        const parts: any[] = []
+        if (m.content) parts.push({ type: 'text', text: m.content })
+        for (const img of m.images) parts.push({ type: 'image_url', image_url: { url: `data:${img.mime};base64,${img.data}` } })
+        out.push({ role: 'user', content: parts })
+      } else {
+        out.push({ role: 'user', content: m.content })
+      }
     } else if (m.role === 'assistant') {
       const msg: any = { role: 'assistant', content: m.content || '' }
       if (m.toolCalls?.length) {
@@ -313,7 +320,14 @@ function mapAnthropicMessages(p: TurnParams, thinkingEnabled: boolean): any[] {
   const out: any[] = []
   for (const m of p.messages) {
     if (m.role === 'user') {
-      out.push({ role: 'user', content: m.content })
+      if (m.images?.length) {
+        const blocks: any[] = []
+        if (m.content) blocks.push({ type: 'text', text: m.content })
+        for (const img of m.images) blocks.push({ type: 'image', source: { type: 'base64', media_type: img.mime, data: img.data } })
+        out.push({ role: 'user', content: blocks })
+      } else {
+        out.push({ role: 'user', content: m.content })
+      }
     } else if (m.role === 'assistant') {
       const blocks: any[] = []
       // Rejouer les blocs de raisonnement (avec signature) tels quels — requis par l'API quand thinking est actif.
@@ -432,7 +446,10 @@ function mapGeminiContents(p: TurnParams): any[] {
   const out: any[] = []
   for (const m of p.messages) {
     if (m.role === 'user') {
-      out.push({ role: 'user', parts: [{ text: m.content }] })
+      const parts: any[] = []
+      if (m.content) parts.push({ text: m.content })
+      for (const img of m.images ?? []) parts.push({ inlineData: { mimeType: img.mime, data: img.data } })
+      out.push({ role: 'user', parts: parts.length ? parts : [{ text: m.content }] })
     } else if (m.role === 'assistant') {
       const parts: any[] = []
       if (m.content) parts.push({ text: m.content })

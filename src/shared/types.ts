@@ -32,9 +32,38 @@ export interface ModelInfo {
   contextWindow?: number
 }
 
+/** Image jointe a un message (base64 sans prefixe data:), pour l'envoi multimodal. */
+export interface ImagePart {
+  mime: string
+  data: string
+}
+
+/** Piece jointe telle qu'affichee dans un message d'interface (pastille). */
+export interface UiAttachment {
+  name: string
+  kind: 'image' | 'file'
+  /** Miniature (data URL) pour les images. */
+  dataUrl?: string
+}
+
+/** Piece jointe en attente dans le composer (avant envoi). */
+export interface ComposerAttachment {
+  id: string
+  name: string
+  kind: 'image' | 'file'
+  /** Image : type MIME + base64 + apercu (data URL). */
+  mime?: string
+  data?: string
+  dataUrl?: string
+  /** Fichier texte : contenu. */
+  text?: string
+}
+
 export interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
   content: string
+  /** Images jointes (multimodal). */
+  images?: ImagePart[]
 }
 
 /**
@@ -67,6 +96,8 @@ export interface AgentMessage {
   toolName?: string
   /** Blocs de raisonnement bruts (Anthropic) a rejouer tels quels au tour suivant. */
   thinkingBlocks?: unknown[]
+  /** Images jointes au message user (multimodal). */
+  images?: ImagePart[]
 }
 
 export interface ChatStartRequest {
@@ -111,6 +142,8 @@ export interface UiMessage {
   tools?: UiToolEntry[]
   /** Texte et outils entrelacés dans l'ordre où ils se sont produits. */
   blocks?: UiBlock[]
+  /** Pièces jointes (images/fichiers) affichées avec le message. */
+  attachments?: UiAttachment[]
   streaming?: boolean
   error?: boolean
 }

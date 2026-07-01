@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { Compaction } from '@shared/types'
+import type { Compaction, ComposerAttachment } from '@shared/types'
 import { useApp } from '../store'
 import { useT } from '../lib/i18n'
 import { ModelPicker } from './ModelPicker'
@@ -24,6 +24,7 @@ export function ConversationView({ convId }: { convId: string }): JSX.Element {
 
   const [input, setInput] = useState('')
   const [viewCp, setViewCp] = useState<Compaction | null>(null)
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([])
   // Vrai tant que l'utilisateur est « collé » en bas ; faux dès qu'il remonte lire plus haut.
   const [atBottom, setAtBottom] = useState(true)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -65,9 +66,10 @@ export function ConversationView({ convId }: { convId: string }): JSX.Element {
   if (!conv) return <div className="conversation" />
 
   const submit = (): void => {
-    if (!input.trim()) return
-    send(convId, input)
+    if (!input.trim() && attachments.length === 0) return
+    send(convId, input, attachments)
     setInput('')
+    setAttachments([])
     setAtBottom(true)
   }
   const onKey = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -77,16 +79,43 @@ export function ConversationView({ convId }: { convId: string }): JSX.Element {
     }
   }
 
+  const IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i
+  const removeAttachment = (aid: string): void => setAttachments((list) => list.filter((a) => a.id !== aid))
+
+  // « + » : joint un fichier en PASTILLE (image → miniature ; texte → puce), sans déverser le contenu.
   const attachFile = async (): Promise<void> => {
     const path = await window.api.fs.selectFile()
     if (!path) return
+    const name = path.split(/[\\/]/).pop() || 'fichier'
     try {
-      const content = await window.api.fs.readFile(path)
-      const name = path.split(/[\\/]/).pop()
-      setInput((prev) => `${prev}${prev ? '\n\n' : ''}--- ${name} ---\n${content}\n--- end ---\n`)
+      if (IMAGE_RE.test(name)) {
+        const { mime, data } = await window.api.fs.readFileBase64(path)
+        setAttachments((l) => [...l, { id: crypto.randomUUID(), name, kind: 'image', mime, data, dataUrl: `data:${mime};base64,${data}` }])
+      } else {
+        const content = await window.api.fs.readFile(path)
+        setAttachments((l) => [...l, { id: crypto.randomUUID(), name, kind: 'file', text: content }])
+      }
     } catch {
       /* ignore */
     }
+  }
+
+  // Coller une image (Ctrl+V) : on la JOINT au lieu de coller du texte binaire.
+  const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+    const item = Array.from(e.clipboardData?.items ?? []).find((it) => it.kind === 'file' && it.type.startsWith('image/'))
+    if (!item) return
+    const file = item.getAsFile()
+    if (!file) return
+    e.preventDefault()
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '')
+      const m = /^data:([^;]+);base64,(.*)$/.exec(dataUrl)
+      if (!m) return
+      const ext = (m[1].split('/')[1] || 'png').replace('+xml', '')
+      setAttachments((l) => [...l, { id: crypto.randomUUID(), name: file.name || `image.${ext}`, kind: 'image', mime: m[1], data: m[2], dataUrl }])
+    }
+    reader.readAsDataURL(file)
   }
 
   return (
@@ -165,6 +194,25 @@ export function ConversationView({ convId }: { convId: string }): JSX.Element {
               </div>
             )}
             {conv.busy && !conv.compacting && <WorkingStatus phase={conv.phase} />}
+            {attachments.length > 0 && (
+              <div className="attach-row">
+                {attachments.map((a) => (
+                  <div key={a.id} className={`attach-chip ${a.kind}`}>
+                    {a.kind === 'image' && a.dataUrl ? (
+                      <img src={a.dataUrl} alt={a.name} className="attach-thumb" />
+                    ) : (
+                      <span className="attach-ico">📄</span>
+                    )}
+                    <span className="attach-name" title={a.name}>
+                      {a.name}
+                    </span>
+                    <button className="attach-x" onClick={() => removeAttachment(a.id)} title="✕" aria-label="✕">
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="composer-panel">
               <div className="composer-input-row">
                 <textarea
@@ -173,6 +221,7 @@ export function ConversationView({ convId }: { convId: string }): JSX.Element {
                   placeholder={t('composerPlaceholder')}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={onKey}
+                  onPaste={onPaste}
                   rows={1}
                 />
                 {conv.busy ? (
@@ -180,7 +229,7 @@ export function ConversationView({ convId }: { convId: string }): JSX.Element {
                     ■
                   </button>
                 ) : (
-                  <button className="icon-send" onClick={submit} disabled={!input.trim()} title={t('send')}>
+                  <button className="icon-send" onClick={submit} disabled={!input.trim() && attachments.length === 0} title={t('send')}>
                     ↵
                   </button>
                 )}

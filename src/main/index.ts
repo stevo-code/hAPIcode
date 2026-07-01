@@ -102,6 +102,40 @@ function createWindow(): void {
   mainWindow.on('maximize', () => mainWindow?.webContents.send('window:maximized', true))
   mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window:maximized', false))
 
+  // Menu clic-droit (absent par defaut en Electron). Libelles forces dans la langue de l'APP
+  // (les roles Electron suivent sinon la langue de l'OS). « Tout selectionner » UNIQUEMENT
+  // dans un champ (sinon selectAll selectionne TOUT le document = toute l'app).
+  mainWindow.webContents.on('context-menu', (_e, params) => {
+    const f = params.editFlags
+    const en = (store.getSettings().lang ?? 'fr') === 'en'
+    const L = en
+      ? { undo: 'Undo', redo: 'Redo', cut: 'Cut', copy: 'Copy', paste: 'Paste', selectAll: 'Select all', copyImage: 'Copy image', copyLink: 'Copy link' }
+      : { undo: 'Annuler', redo: 'Rétablir', cut: 'Couper', copy: 'Copier', paste: 'Coller', selectAll: 'Tout sélectionner', copyImage: 'Copier l’image', copyLink: 'Copier le lien' }
+    const tpl: Electron.MenuItemConstructorOptions[] = []
+    if (params.isEditable) {
+      tpl.push(
+        { role: 'undo', label: L.undo, enabled: f.canUndo },
+        { role: 'redo', label: L.redo, enabled: f.canRedo },
+        { type: 'separator' },
+        { role: 'cut', label: L.cut, enabled: f.canCut },
+        { role: 'copy', label: L.copy, enabled: f.canCopy },
+        { role: 'paste', label: L.paste, enabled: f.canPaste },
+        { type: 'separator' },
+        { role: 'selectAll', label: L.selectAll }
+      )
+    } else {
+      if (params.mediaType === 'image') {
+        tpl.push({ label: L.copyImage, click: () => mainWindow?.webContents.copyImageAt(params.x, params.y) })
+      }
+      if (params.linkURL) {
+        tpl.push({ label: L.copyLink, click: () => clipboard.writeText(params.linkURL) })
+      }
+      // Copier uniquement s'il y a une selection ; PAS de « tout selectionner » hors champ.
+      if (params.selectionText) tpl.push({ role: 'copy', label: L.copy })
+    }
+    if (tpl.length) Menu.buildFromTemplate(tpl).popup()
+  })
+
   // Fermer (X) => masquer dans la zone de notification, MAIS seulement si un tray existe
   // pour rouvrir la fenetre. Sinon fermer = quitter (jamais d'app invisible et inaccessible).
   mainWindow.on('close', (e) => {
@@ -274,7 +308,7 @@ function registerIpc(): void {
 
     const messages: AgentMessage[] = req.messages
       .filter((m) => m.role !== 'system')
-      .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }))
+      .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content, images: m.images }))
 
     const requestApproval = (callId: string): Promise<boolean> =>
       new Promise((resolveApproval) => {
@@ -385,6 +419,15 @@ function registerIpc(): void {
       .sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1))
   })
   ipcMain.handle('fs:readFile', (_e, file: string) => readFileSync(file, 'utf-8'))
+  // Lecture binaire -> base64 (+ type MIME depuis l'extension) pour les pieces jointes image.
+  ipcMain.handle('fs:readFileBase64', (_e, file: string) => {
+    const data = readFileSync(file).toString('base64')
+    const ext = (file.split('.').pop() ?? '').toLowerCase()
+    const mimes: Record<string, string> = {
+      png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml'
+    }
+    return { mime: mimes[ext] ?? 'application/octet-stream', data }
+  })
   ipcMain.handle('fs:writeFile', (_e, file: string, content: string) =>
     writeFileSync(file, content, 'utf-8')
   )

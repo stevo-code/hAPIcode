@@ -33,6 +33,7 @@ const api: RendererApi = {
     selectFile: () => ipcRenderer.invoke('fs:selectFile'),
     listDir: (dir) => ipcRenderer.invoke('fs:listDir', dir),
     readFile: (file) => ipcRenderer.invoke('fs:readFile', file),
+    readFileBase64: (file) => ipcRenderer.invoke('fs:readFileBase64', file),
     writeFile: (file, content) => ipcRenderer.invoke('fs:writeFile', file, content),
     homeDir: () => ipcRenderer.invoke('fs:homeDir')
   },
