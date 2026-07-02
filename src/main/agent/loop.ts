@@ -89,6 +89,9 @@ export async function runAgent(o: AgentOptions): Promise<void> {
     // Remonte le usage REEL (agent racine uniquement : runSubAgent ne passe pas onUsage,
     // car chaque sous-agent a son propre contexte separe — il ne s'ajoute pas a la conversation).
     if (turn.usage) o.onUsage?.(turn.usage)
+    // Blocs de raisonnement signes -> renderer : persistes avec le message puis REJOUES
+    // nativement au tour suivant (requis par Anthropic pour rejouer des tool_use).
+    if (turn.thinkingBlocks?.length) o.emit({ streamId: o.streamId, type: 'thinking', blocks: turn.thinkingBlocks })
 
     messages.push({
       role: 'assistant',
@@ -109,7 +112,7 @@ export async function runAgent(o: AgentOptions): Promise<void> {
     // 1. Sous-agents : annonce + lancement EN PARALLELE.
     for (const call of turn.toolCalls) {
       if (call.name !== 'spawn_subagent' || call.argsError) continue
-      o.emit({ streamId: o.streamId, type: 'tool_call', callId: call.id, tool: call.name, args: call.arguments, needsApproval: false })
+      o.emit({ streamId: o.streamId, type: 'tool_call', callId: call.id, tool: call.name, args: call.arguments, needsApproval: false, iter })
       if (depth >= MAX_DEPTH) {
         setResult(call.id, 'Profondeur maximale de sous-agents atteinte.', true)
         continue
@@ -136,7 +139,7 @@ export async function runAgent(o: AgentOptions): Promise<void> {
       if (call.name === 'spawn_subagent') continue
       if (o.signal.aborted) return
       const needs = NEEDS_APPROVAL.has(call.name) && !call.argsError
-      o.emit({ streamId: o.streamId, type: 'tool_call', callId: call.id, tool: call.name, args: call.arguments, needsApproval: needs })
+      o.emit({ streamId: o.streamId, type: 'tool_call', callId: call.id, tool: call.name, args: call.arguments, needsApproval: needs, iter })
 
       if (call.argsError) {
         setResult(call.id, call.argsError, true)

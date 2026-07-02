@@ -58,9 +58,9 @@ const Bubble = memo(function Bubble({
           m.blocks!.map((b, i) =>
             b.type === 'text' ? (
               b.text ? <Content key={i} content={b.text} /> : null
-            ) : (
+            ) : b.type === 'tool' ? (
               <ToolCallCard key={b.tool.callId} entry={b.tool} onApprove={onApprove} onApproveAlways={onApproveAlways} />
-            )
+            ) : null // blocs thinking : jamais affiches (le raisonnement lisible est dans m.reasoning)
           )
         ) : (
           // Anciennes conversations (avant les blocs) : outils puis texte.

@@ -3,6 +3,7 @@ import type {
   AppSettings,
   BgTask,
   ChatEvent,
+  ChatMessage,
   Conversation,
   ConvTarget,
   Credential,
@@ -147,6 +148,15 @@ export const useApp = create<AppState>((set, get) => {
     if (c.section === 'chat') {
       return `${id}\nTu es un assistant utile, clair et concis. Reponds dans la langue de l'utilisateur.`
     }
+    if (!c.target) {
+      // Sans cible, AUCUN outil n'est passe a l'API : ne surtout pas en promettre, sinon le
+      // modele invente des pseudo-appels en texte (rien ne s'execute).
+      return (
+        `${id}\nTu es un assistant de programmation expert. Aucun dossier de travail n'est selectionne : ` +
+        "tu n'as AUCUN outil dans cette conversation (ni lecture de fichiers, ni execution de commandes). " +
+        "Ne fais jamais semblant d'executer quoi que ce soit ; invite l'utilisateur a choisir un dossier de travail pour activer les outils."
+      )
+    }
     let s = `${id}\nTu es un assistant de programmation expert. Tu disposes d'outils pour lire/ecrire des fichiers et executer des commandes.`
     if (c.target?.type === 'local') {
       const isWin = /^[A-Za-z]:[\\/]/.test(c.target.path)
@@ -159,6 +169,13 @@ export const useApp = create<AppState>((set, get) => {
       s += '\nSYSTEME distant : Unix/Linux (commandes shell standard ; PAS de commandes Windows).'
     }
     s += "\nUtilise les outils pour inspecter et modifier le projet. Les commandes run_command s'executent DEJA dans le dossier de travail : inutile de prefixer par `cd`."
+    // ANTI-IMITATION : d'anciennes conversations (avant le rejeu natif) contiennent des pseudo-
+    // appels aplatis en texte ; interdire explicitement de reproduire ce format.
+    s +=
+      "\n\nAPPELS D'OUTILS : passe UNIQUEMENT par le mecanisme natif d'appels d'outils de l'API. " +
+      "N'ecris JAMAIS de pseudo-appel en texte (du style `[run_command {\"command\": ...}]` suivi d'une sortie) : " +
+      "un tel texte n'execute RIEN et ses resultats seraient inventes. Si d'anciens messages de la conversation " +
+      'contiennent ce format, ignore-le et ne le reproduis pas.'
     // REGLE STRICTE : creation de fichiers uniquement via l'outil (anti-hallucination).
     s +=
       "\n\nCREATION DE FICHIERS : pour creer ou modifier un fichier, tu DOIS appeler l'outil write_file (ou run_command). " +
@@ -213,7 +230,7 @@ export const useApp = create<AppState>((set, get) => {
               ...(m.blocks ?? []),
               {
                 type: 'tool',
-                tool: { callId: e.callId, tool: e.tool, args: e.args, needsApproval: e.needsApproval, status: e.needsApproval ? 'pending' : 'running' }
+                tool: { callId: e.callId, tool: e.tool, args: e.args, needsApproval: e.needsApproval, status: e.needsApproval ? 'pending' : 'running', iter: e.iter }
               }
             ]
           }))
@@ -226,6 +243,9 @@ export const useApp = create<AppState>((set, get) => {
             blocks: updateToolBlock(m.blocks, e.callId, (t) => ({ ...t, result: e.result, status: e.isError ? 'error' : 'done' }))
           }))
         }
+      case 'thinking':
+        // Blocs signes (Anthropic) : invisibles dans le fil, conserves pour le rejeu natif.
+        return { ...c, messages: patchLast((m) => ({ ...m, blocks: [...(m.blocks ?? []), { type: 'thinking', blocks: e.blocks }] })) }
       case 'error':
         return {
           ...c,
@@ -289,21 +309,83 @@ export const useApp = create<AppState>((set, get) => {
   // en mode agent, ou les sorties d'outils dominent le contexte).
   const estimateChars = (msgs: UiMessage[]): number => messagesChars(msgs)
 
-  // Contenu d'un message POUR LE MODELE : inclut les OUTILS + leurs RESULTATS. Sans ca, sur
-  // « continue » (ou nouveau tour), le modele ne recoit que sa narration et REFAIT tout le
-  // travail (il ne voit pas ce que ses read_file/run_command ont renvoye) — grosse perte de contexte.
-  const toApiContent = (m: UiMessage): string => {
+  // Rejeu NATIF d'un message assistant pour l'API : ses appels d'outils redeviennent de VRAIS
+  // tool_calls + messages de resultat (role 'tool'), decoupes par iteration de l'agent. L'ancien
+  // aplatissement en texte « [outil {...}]\nresultat » apprenait au modele a IMITER ce format
+  // (pseudo-appels ecrits en texte, sorties inventees, rien d'execute).
+  const toApiMessages = (m: UiMessage): ChatMessage[] => {
+    if (m.role !== 'assistant') return [{ role: m.role, content: m.content }]
+    const resultOf = (t: UiToolEntry): string => t.result ?? (t.status === 'denied' ? '(action refusée)' : '(sans résultat)')
+    const argsOf = (t: UiToolEntry): Record<string, unknown> => {
+      if (t.args && typeof t.args === 'object') return t.args as Record<string, unknown>
+      if (typeof t.args === 'string' && t.args) {
+        try {
+          const parsed = JSON.parse(t.args)
+          if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>
+        } catch {
+          /* argument brut non-JSON */
+        }
+        return { raw: t.args }
+      }
+      return {}
+    }
+    const out: ChatMessage[] = []
+    let text = ''
+    let thinking: unknown[] | undefined
+    let calls: UiToolEntry[] = []
+    const flush = (): void => {
+      if (!text && !calls.length) return
+      out.push({
+        role: 'assistant',
+        content: text,
+        thinkingBlocks: thinking,
+        toolCalls: calls.length ? calls.map((t) => ({ id: t.callId, name: t.tool, arguments: argsOf(t) })) : undefined
+      })
+      // Chaque appel DOIT avoir son resultat (les API refusent un tool_call orphelin).
+      for (const t of calls) out.push({ role: 'tool', content: resultOf(t), toolCallId: t.callId, toolName: t.tool })
+      text = ''
+      thinking = undefined
+      calls = []
+    }
+    if (m.blocks?.length) {
+      for (const b of m.blocks) {
+        if (b.type === 'text') {
+          if (calls.length) flush() // texte apres des appels = nouvelle iteration de l'agent
+          text += b.text
+        } else if (b.type === 'tool') {
+          // Appel d'une AUTRE iteration sans narration entre les deux : flush, sinon des appels
+          // sequentiels seraient rejoues comme un faux paquet parallele (causalite inversee).
+          if (calls.length && calls[calls.length - 1].iter !== b.tool.iter) flush()
+          calls.push(b.tool)
+        } else {
+          if (calls.length) flush() // un bloc thinking ouvre une nouvelle iteration
+          thinking = [...(thinking ?? []), ...b.blocks]
+        }
+      }
+    } else if (m.tools?.length) {
+      // Ancien format (outils groupes + texte) : une seule iteration.
+      text = m.content
+      calls = [...m.tools]
+    } else {
+      return [{ role: 'assistant', content: m.content }]
+    }
+    flush()
+    return out.length ? out : [{ role: 'assistant', content: m.content }]
+  }
+
+  // Transcript TEXTE pour le resumeur de compactage UNIQUEMENT (il n'a pas d'outils). Format
+  // volontairement descriptif, PAS en forme d'appel imitable (le resume est reinjecte au modele).
+  const toSummaryText = (m: UiMessage): string => {
     if (m.role !== 'assistant' || !m.blocks?.length) return m.content
     let out = ''
     for (const b of m.blocks) {
-      if (b.type === 'text') {
-        out += b.text
-        continue
+      if (b.type === 'text') out += b.text
+      else if (b.type === 'tool') {
+        const t = b.tool
+        const args = t.args == null ? '' : typeof t.args === 'string' ? t.args : JSON.stringify(t.args)
+        const res = t.result ?? (t.status === 'denied' ? '(action refusée)' : '(sans résultat)')
+        out += `\n\nOutil ${t.tool}${args ? ` — arguments : ${args}` : ''}\nRésultat :\n${res}\n`
       }
-      const t = b.tool
-      const args = t.args == null ? '' : typeof t.args === 'string' ? t.args : JSON.stringify(t.args)
-      const res = t.result ?? (t.status === 'denied' ? '(action refusée)' : '(sans résultat)')
-      out += `\n\n[${t.tool}${args ? ` ${args}` : ''}]\n${res}\n`
     }
     return out
   }
@@ -648,10 +730,11 @@ export const useApp = create<AppState>((set, get) => {
       const providerName = getPreset(cred?.providerId ?? '')?.name ?? cred?.label ?? 'API'
       const endpoint = cred?.baseUrl ?? ''
 
-      // Historique AVEC outils+resultats (sinon perte de contexte en « continue ») + message courant.
-      const outgoing = [
-        ...history.map((m) => ({ role: m.role, content: toApiContent(m) })),
-        { role: 'user' as const, content: sentContent, images: images.length ? images : undefined }
+      // Historique rejoue en NATIF (tool_calls + resultats) : le contexte survit au « continue »
+      // ET le modele ne voit jamais de pseudo-appels en texte qu'il pourrait imiter.
+      const outgoing: ChatMessage[] = [
+        ...history.flatMap((m) => toApiMessages(m)),
+        { role: 'user', content: sentContent, images: images.length ? images : undefined }
       ]
 
       await window.api.chat.start({
@@ -724,7 +807,7 @@ export const useApp = create<AppState>((set, get) => {
         const summary = await window.api.chat.summarize({
           credentialId: sel.credentialId,
           model: sel.model,
-          messages: older.map((m) => ({ role: m.role, content: toApiContent(m) }))
+          messages: older.map((m) => ({ role: m.role, content: toSummaryText(m) }))
         })
         const compaction = { id: crypto.randomUUID(), at: Date.now(), title: compactionTitle(summary), summary }
         patch(id, (x) => ({

@@ -306,9 +306,20 @@ function registerIpc(): void {
       return streamId
     }
 
+    // Historique rejoue en NATIF (tool_calls + resultats role 'tool' + thinking) : les mappers
+    // providers les convertissent au format de chaque API. Aplati en texte, le modele apprenait
+    // a IMITER des pseudo-appels ([run_command {...}]) au lieu d'appeler les vrais outils.
     const messages: AgentMessage[] = req.messages
       .filter((m) => m.role !== 'system')
-      .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content, images: m.images }))
+      .map((m) => ({
+        role: m.role as 'user' | 'assistant' | 'tool',
+        content: m.content,
+        images: m.images,
+        toolCalls: m.toolCalls,
+        toolCallId: m.toolCallId,
+        toolName: m.toolName,
+        thinkingBlocks: m.thinkingBlocks
+      }))
 
     const requestApproval = (callId: string): Promise<boolean> =>
       new Promise((resolveApproval) => {
@@ -380,6 +391,7 @@ function registerIpc(): void {
             'Structure en markdown : ' +
             '## Objectif global · ## Ce qui est DEJA FAIT (liste precise, pour ne PAS le refaire) · ## Etat EXACT de chaque fichier cree/modifie (chemin + ce qui a change + extraits de code clefs verbatim) · ## Commandes deja executees + leur resultat · ## Decisions prises et pourquoi · ## Ou on en est PRECISEMENT maintenant · ## LA prochaine action a faire (concrete) · ## Pieges/erreurs rencontrees a ne pas refaire. ' +
             'Cite les noms de fichiers, chemins, fonctions, numeros de ligne, valeurs et extraits de code EXACTS. ' +
+            "N'ecris JAMAIS de pseudo-appels d'outils dans le releve (aucun bloc du style [run_command {...}] ni fausse sortie de terminal) : decris les commandes et leurs resultats en PROSE. " +
             'REGLE ABSOLUE : un agent qui lit ce releve doit pouvoir reprendre sans relire les fichiers ni recommencer. Reponds dans la langue de l\'utilisateur.',
           messages: [{ role: 'user', content: `Fais le releve d'etat COMPLET de cette session pour la reprendre sans rien refaire :\n\n${transcript}` }]
         },

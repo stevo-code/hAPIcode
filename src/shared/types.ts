@@ -60,10 +60,18 @@ export interface ComposerAttachment {
 }
 
 export interface ChatMessage {
-  role: 'user' | 'assistant' | 'system'
+  role: 'user' | 'assistant' | 'system' | 'tool'
   content: string
   /** Images jointes (multimodal). */
   images?: ImagePart[]
+  /** Appels d'outils NATIFS d'un tour precedent (assistant). Rejoues structures aux providers :
+   *  aplatis en texte, le modele finit par IMITER des pseudo-appels au lieu d'appeler les outils. */
+  toolCalls?: ToolCall[]
+  /** Resultat d'outil rejoue (role 'tool'). */
+  toolCallId?: string
+  toolName?: string
+  /** Blocs de raisonnement bruts (Anthropic, signes) a rejouer tels quels. */
+  thinkingBlocks?: unknown[]
 }
 
 /**
@@ -130,11 +138,18 @@ export interface UiToolEntry {
   needsApproval: boolean
   status: ToolStatus
   result?: string
+  /** Iteration de l'agent qui a emis l'appel : sert de frontiere au rejeu natif
+   *  (des appels d'iterations differentes ne doivent pas etre fusionnes en « paralleles »). */
+  iter?: number
 }
 
 /** Bloc d'un message assistant : texte OU appel d'outil, dans l'ordre CHRONOLOGIQUE
  *  (narration → commande → résultat → narration…). */
-export type UiBlock = { type: 'text'; text: string } | { type: 'tool'; tool: UiToolEntry }
+export type UiBlock =
+  | { type: 'text'; text: string }
+  | { type: 'tool'; tool: UiToolEntry }
+  /** Blocs de raisonnement signes (Anthropic) : jamais affiches, conserves pour le rejeu natif. */
+  | { type: 'thinking'; blocks: unknown[] }
 
 export interface UiMessage {
   role: 'user' | 'assistant'
@@ -194,8 +209,9 @@ export interface Conversation {
 export type ChatEvent =
   | { streamId: StreamId; type: 'text'; delta: string }
   | { streamId: StreamId; type: 'reasoning'; delta: string }
-  | { streamId: StreamId; type: 'tool_call'; callId: string; tool: string; args: unknown; needsApproval: boolean }
+  | { streamId: StreamId; type: 'tool_call'; callId: string; tool: string; args: unknown; needsApproval: boolean; iter?: number }
   | { streamId: StreamId; type: 'tool_result'; callId: string; result: string; isError?: boolean }
+  | { streamId: StreamId; type: 'thinking'; blocks: unknown[] }
   | { streamId: StreamId; type: 'done'; usage?: TokenUsage }
   | { streamId: StreamId; type: 'usage'; usage: TokenUsage }
   | { streamId: StreamId; type: 'error'; message: string }

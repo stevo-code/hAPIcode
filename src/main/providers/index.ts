@@ -6,6 +6,9 @@ export interface ProviderContext {
   kind: ProviderKind
   baseUrl: string
   apiKey: string
+  /** Memo (duree du run) : l'API Anthropic a refuse le thinking avec cet historique — les
+   *  iterations suivantes partent directement sans thinking au lieu de repayer echec+retry. */
+  thinkingFallback?: boolean
 }
 
 export interface TurnParams {
@@ -320,14 +323,14 @@ function mapAnthropicMessages(p: TurnParams, thinkingEnabled: boolean): any[] {
   const out: any[] = []
   for (const m of p.messages) {
     if (m.role === 'user') {
-      if (m.images?.length) {
-        const blocks: any[] = []
-        if (m.content) blocks.push({ type: 'text', text: m.content })
-        for (const img of m.images) blocks.push({ type: 'image', source: { type: 'base64', media_type: img.mime, data: img.data } })
-        out.push({ role: 'user', content: blocks })
-      } else {
-        out.push({ role: 'user', content: m.content })
-      }
+      const blocks: any[] = []
+      if (m.content) blocks.push({ type: 'text', text: m.content })
+      for (const img of m.images ?? []) blocks.push({ type: 'image', source: { type: 'base64', media_type: img.mime, data: img.data } })
+      const last = out[out.length - 1]
+      // Fusionne avec un tour user precedent en blocs (ex: tool_results) : un seul tour par role.
+      if (last && last.role === 'user' && Array.isArray(last.content)) last.content.push(...blocks)
+      else if (m.images?.length) out.push({ role: 'user', content: blocks })
+      else out.push({ role: 'user', content: m.content })
     } else if (m.role === 'assistant') {
       const blocks: any[] = []
       // Rejouer les blocs de raisonnement (avec signature) tels quels — requis par l'API quand thinking est actif.
@@ -346,32 +349,49 @@ function mapAnthropicMessages(p: TurnParams, thinkingEnabled: boolean): any[] {
 }
 
 async function runAnthropic(ctx: ProviderContext, p: TurnParams, h: TurnHandlers): Promise<AssistantTurn> {
-  const mode = effortOn(p.reasoningEffort) ? anthropicThinkingMode(p.model) : 'none'
+  const mode = effortOn(p.reasoningEffort) && !ctx.thinkingFallback ? anthropicThinkingMode(p.model) : 'none'
   const thinkingEnabled = mode !== 'none'
 
-  const body: any = { model: p.model, stream: true, messages: mapAnthropicMessages(p, thinkingEnabled) }
-  if (p.system) body.system = p.system
-  if (p.tools?.length) body.tools = p.tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters }))
-
-  if (mode === 'adaptive') {
-    body.max_tokens = p.maxTokens ?? 16000
-    body.thinking = { type: 'adaptive', display: 'summarized' }
-    body.output_config = { effort: anthropicEffort(p.model, p.reasoningEffort!) } // low|medium|high|xhigh|max (rabattu)
-  } else if (mode === 'legacy') {
-    const budget = legacyBudget(p.reasoningEffort!)
-    body.max_tokens = budget + 8192
-    body.thinking = { type: 'enabled', budget_tokens: budget }
-  } else {
-    body.max_tokens = p.maxTokens ?? 4096
-    if (p.temperature != null) body.temperature = p.temperature
+  const buildBody = (m: 'adaptive' | 'legacy' | 'none'): any => {
+    const body: any = { model: p.model, stream: true, messages: mapAnthropicMessages(p, m !== 'none') }
+    if (p.system) body.system = p.system
+    if (p.tools?.length) body.tools = p.tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters }))
+    if (m === 'adaptive') {
+      body.max_tokens = p.maxTokens ?? 16000
+      body.thinking = { type: 'adaptive', display: 'summarized' }
+      body.output_config = { effort: anthropicEffort(p.model, p.reasoningEffort!) } // low|medium|high|xhigh|max (rabattu)
+    } else if (m === 'legacy') {
+      const budget = legacyBudget(p.reasoningEffort!)
+      body.max_tokens = budget + 8192
+      body.thinking = { type: 'enabled', budget_tokens: budget }
+    } else {
+      body.max_tokens = p.maxTokens ?? 4096
+      if (p.temperature != null) body.temperature = p.temperature
+    }
+    return body
   }
+  const post = (body: any): Promise<Response> =>
+    fetch(`${ctx.baseUrl}/v1/messages`, {
+      method: 'POST',
+      signal: h.signal,
+      headers: { 'Content-Type': 'application/json', 'x-api-key': ctx.apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify(body)
+    })
 
-  const res = await fetch(`${ctx.baseUrl}/v1/messages`, {
-    method: 'POST',
-    signal: h.signal,
-    headers: { 'Content-Type': 'application/json', 'x-api-key': ctx.apiKey, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify(body)
-  })
+  let res = await post(buildBody(mode))
+  if (!res.ok && thinkingEnabled) {
+    // Historique rejoue avec tool_use sans blocs thinking signes (conversation venue d'un autre
+    // modele, ou anterieure au rejeu natif) : l'API PEUT le refuser quand le thinking est actif.
+    // On retente UNE fois sans thinking seulement si l'API refuse VRAIMENT pour ca — jamais par
+    // heuristique preventive (un tool_use sans thinking est un etat normal, ex. mode adaptatif).
+    const errBody = await res.text().catch(() => '')
+    if (/thinking/i.test(errBody)) {
+      ctx.thinkingFallback = true // memorise pour le reste du run (pas de re-echec a chaque iteration)
+      res = await post(buildBody('none'))
+    } else {
+      throw new Error(errBody.trim().slice(0, 600) || `HTTP ${res.status}`)
+    }
+  }
   if (!res.ok || !res.body) throw new Error(await errText(res))
 
   let text = ''
@@ -449,14 +469,23 @@ function mapGeminiContents(p: TurnParams): any[] {
       const parts: any[] = []
       if (m.content) parts.push({ text: m.content })
       for (const img of m.images ?? []) parts.push({ inlineData: { mimeType: img.mime, data: img.data } })
-      out.push({ role: 'user', parts: parts.length ? parts : [{ text: m.content }] })
+      const content = parts.length ? parts : [{ text: m.content }]
+      const last = out[out.length - 1]
+      // Gemini attend des tours alternes : fusionne avec un tour user precedent (ex: functionResponses).
+      if (last && last.role === 'user') last.parts.push(...content)
+      else out.push({ role: 'user', parts: content })
     } else if (m.role === 'assistant') {
       const parts: any[] = []
       if (m.content) parts.push({ text: m.content })
       for (const tc of m.toolCalls ?? []) parts.push({ functionCall: { name: tc.name, args: tc.arguments ?? {} } })
       out.push({ role: 'model', parts: parts.length ? parts : [{ text: '' }] })
     } else if (m.role === 'tool') {
-      out.push({ role: 'user', parts: [{ functionResponse: { name: m.toolName ?? 'tool', response: { result: m.content } } }] })
+      const part = { functionResponse: { name: m.toolName ?? 'tool', response: { result: m.content } } }
+      const last = out[out.length - 1]
+      // TOUTES les reponses d'un meme paquet d'appels doivent etre dans LE MEME tour user
+      // (sinon 400 « number of function response parts... »). Un tour par reponse = rejet.
+      if (last && last.role === 'user') last.parts.push(part)
+      else out.push({ role: 'user', parts: [part] })
     }
   }
   return out

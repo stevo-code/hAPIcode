@@ -194,7 +194,7 @@ export function messagesChars(
     content?: string
     reasoning?: string
     tools?: Toolish[]
-    blocks?: ({ type: 'tool'; tool: Toolish } | { type: 'text'; text?: string })[]
+    blocks?: ({ type: 'tool'; tool: Toolish } | { type: 'text'; text?: string } | { type: 'thinking'; blocks?: unknown[] })[]
   }[]
 ): number {
   let n = 0
