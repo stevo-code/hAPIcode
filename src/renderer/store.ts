@@ -52,6 +52,10 @@ interface AppState {
 
   credentials: Credential[]
   models: ModelInfo[]
+  /** Modeles bruts renvoyes par les API (avant fusion des modeles perso) — sert au recalcul. */
+  apiModels: ModelInfo[]
+  /** Modeles ajoutes a la main : cle = id de credential. */
+  customModels: Record<string, string[]>
   loadingModels: boolean
   selected: Selection | null
   reasoning: ReasoningEffort
@@ -101,6 +105,9 @@ interface AppState {
   setReasoning: (r: ReasoningEffort) => void
   refreshCredentials: () => Promise<void>
   refreshModels: () => Promise<void>
+  /** Ajoute un modele par ID (ou URL Fireworks) a un credential, meme s'il est absent de /models. */
+  addCustomModel: (credentialId: string, idOrUrl: string) => void
+  removeCustomModel: (credentialId: string, modelId: string) => void
 
   send: (id: string, text: string, attachments?: ComposerAttachment[]) => Promise<void>
   cancel: (id: string) => void
@@ -390,6 +397,32 @@ export const useApp = create<AppState>((set, get) => {
     return out
   }
 
+  // Normalise un ID de modele saisi a la main : accepte une URL Fireworks collee.
+  //  https://app.fireworks.ai/models/<ns>/<slug>  ->  accounts/<ns>/models/<slug>
+  const normalizeModelId = (raw: string): string => {
+    let s = raw.trim().replace(/\s+/g, '')
+    const fw = s.match(/fireworks\.ai\/models\/([^/]+)\/([^/?#]+)/i)
+    if (fw) return `accounts/${fw[1]}/models/${fw[2]}`
+    // URL generique collee par erreur : garde le dernier segment utile.
+    if (/^https?:\/\//i.test(s)) s = s.replace(/[?#].*$/, '').replace(/\/+$/, '').split('/').pop() ?? s
+    return s
+  }
+
+  // Fusionne les modeles perso (par credential) avec ceux renvoyes par les API, sans doublon.
+  const withCustom = (api: ModelInfo[], custom: Record<string, string[]>): ModelInfo[] => {
+    const creds = get().credentials
+    const extra: ModelInfo[] = []
+    for (const [cid, ids] of Object.entries(custom)) {
+      const cred = creds.find((c) => c.id === cid)
+      if (!cred) continue // credential supprime : on ignore ses modeles perso
+      for (const id of ids) {
+        if (api.some((m) => m.credentialId === cid && m.id === id)) continue
+        extra.push({ id, label: id, credentialId: cid, providerId: cred.providerId, providerLabel: cred.label })
+      }
+    }
+    return [...api, ...extra]
+  }
+
   // Fenetre de contexte du modele selectionne : valeur REELLE de l'API si dispo, sinon heuristique.
   const selectedWindow = (): number => {
     const sel = get().selected
@@ -416,6 +449,8 @@ export const useApp = create<AppState>((set, get) => {
     activeCodeId: null,
     credentials: [],
     models: [],
+    apiModels: [],
+    customModels: {},
     loadingModels: false,
     selected: null,
     reasoning: 'medium',
@@ -514,6 +549,7 @@ export const useApp = create<AppState>((set, get) => {
         lang: settings.lang ?? 'en',
         sshHosts,
         recentDirs: settings.recentDirs ?? {},
+        customModels: settings.customModels ?? {},
         conversations: map,
         activeChatId: recent('chat'),
         activeCodeId: recent('code')
@@ -660,12 +696,13 @@ export const useApp = create<AppState>((set, get) => {
 
     refreshModels: async () => {
       if (get().credentials.length === 0) {
-        set({ models: [], selected: null })
+        set({ models: [], apiModels: [], selected: null })
         return
       }
       set({ loadingModels: true })
       try {
-        const models = await window.api.providers.listAllModels()
+        const apiModels = await window.api.providers.listAllModels()
+        const models = withCustom(apiModels, get().customModels)
         const { settings } = get()
         let selected = get().selected
         const valid = selected && models.some((m) => m.credentialId === selected!.credentialId && m.id === selected!.model)
@@ -675,9 +712,42 @@ export const useApp = create<AppState>((set, get) => {
             models[0]
           selected = preferred ? { credentialId: preferred.credentialId, model: preferred.id } : null
         }
-        set({ models, selected })
+        set({ apiModels, models, selected })
       } finally {
         set({ loadingModels: false })
+      }
+    },
+
+    addCustomModel: (credentialId, idOrUrl) => {
+      const id = normalizeModelId(idOrUrl)
+      if (!id) return
+      const cur = get().customModels
+      const list = cur[credentialId] ?? []
+      // Deja dans la liste (perso OU renvoye par l'API) : on le selectionne simplement.
+      if (list.includes(id) || get().apiModels.some((m) => m.credentialId === credentialId && m.id === id)) {
+        get().select({ credentialId, model: id })
+        return
+      }
+      const next = { ...cur, [credentialId]: [...list, id] }
+      set({ customModels: next, models: withCustom(get().apiModels, next) })
+      window.api.settings.set({ customModels: next })
+      get().select({ credentialId, model: id })
+    },
+
+    removeCustomModel: (credentialId, modelId) => {
+      const cur = get().customModels
+      const list = (cur[credentialId] ?? []).filter((x) => x !== modelId)
+      const next = { ...cur }
+      if (list.length) next[credentialId] = list
+      else delete next[credentialId]
+      const models = withCustom(get().apiModels, next)
+      set({ customModels: next, models })
+      window.api.settings.set({ customModels: next })
+      // Si on retire le modele SELECTIONNE, retombe sur un modele encore disponible (pas d'orphelin).
+      const sel = get().selected
+      if (sel && sel.credentialId === credentialId && sel.model === modelId) {
+        if (models[0]) get().select({ credentialId: models[0].credentialId, model: models[0].id })
+        else set({ selected: null })
       }
     },
 

@@ -296,4 +296,6 @@ export interface AppSettings {
   startWithSystem?: boolean
   /** Dossiers recents par environnement : cle = id d'hote SSH, ou 'local'. */
   recentDirs?: Record<string, string[]>
+  /** Modeles ajoutes a la main (absents de /models du fournisseur) : cle = id de credential. */
+  customModels?: Record<string, string[]>
 }

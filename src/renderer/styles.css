@@ -1618,6 +1618,45 @@ button {
 .mi-check {
   color: var(--accent-2);
 }
+.mi-remove {
+  color: var(--muted);
+  font-size: 11px;
+  padding: 0 2px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.mi-remove:hover {
+  color: #e0707a;
+  background: var(--bg-3);
+}
+/* Ajout d'un modele par ID (absent de /models du fournisseur) */
+.model-add-btn {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.model-add-row {
+  padding: 4px 10px 6px;
+}
+.model-add-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: none;
+}
+.model-add-input:focus {
+  border-color: var(--accent-2);
+}
+.model-add-hint {
+  padding: 4px 10px 8px;
+  font-size: 10.5px;
+  color: var(--muted);
+  line-height: 1.35;
+}
 
 .titlebar {
   display: flex;
