@@ -298,4 +298,23 @@ export interface AppSettings {
   recentDirs?: Record<string, string[]>
   /** Modeles ajoutes a la main (absents de /models du fournisseur) : cle = id de credential. */
   customModels?: Record<string, string[]>
+  /** Skills : instructions reutilisables auto-appliquees selon leur description. */
+  skills?: Skill[]
+}
+
+/**
+ * Un « skill » facon Claude Code : un bloc d'instructions reutilisable, applique
+ * AUTOMATIQUEMENT quand la demande de l'utilisateur correspond a sa `description`.
+ * Injecte dans le prompt systeme (les skills actifs seulement).
+ */
+export interface Skill {
+  id: string
+  /** Nom court (ex. « Revue de securite »). */
+  name: string
+  /** QUAND l'utiliser — sert au modele a decider s'il s'applique. */
+  description: string
+  /** Les instructions a suivre quand le skill s'applique. */
+  instructions: string
+  /** Skill actif (injecte) ou non. */
+  enabled: boolean
 }

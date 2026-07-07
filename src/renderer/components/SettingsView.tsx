@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { PROVIDER_PRESETS, getPreset, type ProviderKind } from '@shared/providers'
 import { useApp } from '../store'
 import { useT } from '../lib/i18n'
+import { SkillsCard } from './SkillsCard'
 
 export function SettingsView(): JSX.Element {
   const t = useT()
@@ -119,6 +120,8 @@ export function SettingsView(): JSX.Element {
           </div>
           <p className="muted small">{t('closeToTrayNote')}</p>
         </section>
+
+        <SkillsCard />
 
         {!encAvailable && <div className="warn-banner">⚠️ {t('encWarning')}</div>}
 

@@ -11,6 +11,7 @@ import type {
   ModelInfo,
   ReasoningEffort,
   SavedSshHost,
+  Skill,
   UiAttachment,
   UiBlock,
   UiMessage,
@@ -64,6 +65,7 @@ interface AppState {
   lang: Lang
   sshHosts: SavedSshHost[]
   recentDirs: Record<string, string[]>
+  skills: Skill[]
   backgroundTasks: BgTask[]
   showTasks: boolean
   appVersion: string
@@ -105,6 +107,10 @@ interface AppState {
   setReasoning: (r: ReasoningEffort) => void
   refreshCredentials: () => Promise<void>
   refreshModels: () => Promise<void>
+  /** Cree un skill vide et renvoie son id (pour l'editer aussitot). */
+  addSkill: () => string
+  updateSkill: (id: string, patch: Partial<Skill>) => void
+  removeSkill: (id: string) => void
   /** Ajoute un modele par ID (ou URL Fireworks) a un credential, meme s'il est absent de /models. */
   addCustomModel: (credentialId: string, idOrUrl: string) => void
   removeCustomModel: (credentialId: string, modelId: string) => void
@@ -150,10 +156,28 @@ export const useApp = create<AppState>((set, get) => {
     `Si on te demande quel modele ou quelle IA tu es, reponds honnetement « ${model} » — ` +
     `ne pretends jamais etre un autre modele (Claude, ChatGPT, Gemini, etc.).`
 
+  // Bloc SKILLS injecte dans le prompt : les skills ACTIFS (nom + quand + instructions) avec la
+  // regle d'auto-application. Le modele applique celui dont la description matche la demande.
+  const skillsBlock = (): string => {
+    // Un skill sans instructions n'a rien a appliquer -> on ne l'injecte pas (evite du bruit).
+    const active = get().skills.filter((s) => s.enabled && s.instructions.trim())
+    if (!active.length) return ''
+    let s =
+      "\n\nSKILLS DISPONIBLES : tu as des skills (blocs d'instructions specialisees). Pour CHAQUE demande, " +
+      "regarde leur « quand l'utiliser » : si un skill correspond, APPLIQUE ses instructions ; sinon ignore-le. " +
+      "N'annonce pas le skill, applique-le simplement."
+    for (const sk of active) {
+      s += `\n\n--- SKILL : ${sk.name.trim() || 'sans nom'} ---`
+      if (sk.description.trim()) s += `\nQuand l'utiliser : ${sk.description.trim()}`
+      s += `\nInstructions :\n${sk.instructions.trim()}`
+    }
+    return s
+  }
+
   const buildSystem = (c: RuntimeConv, model: string, providerName: string, endpoint: string, reasoning: ReasoningEffort): string => {
     const id = identityLine(model, providerName, endpoint)
     if (c.section === 'chat') {
-      return `${id}\nTu es un assistant utile, clair et concis. Reponds dans la langue de l'utilisateur.`
+      return `${id}\nTu es un assistant utile, clair et concis. Reponds dans la langue de l'utilisateur.${skillsBlock()}`
     }
     if (!c.target) {
       // Sans cible, AUCUN outil n'est passe a l'API : ne surtout pas en promettre, sinon le
@@ -204,7 +228,7 @@ export const useApp = create<AppState>((set, get) => {
         "(decompose la tache en sous-taches independantes, couvre-les en parallele, puis verifie ton travail de maniere adversariale). " +
         'Privilegie l\'exhaustivite et la rigueur sur la rapidite ; ne bacle aucune verification.'
     }
-    return s
+    return s + skillsBlock()
   }
 
   // Ajoute du texte au DERNIER bloc texte, ou cree un nouveau bloc texte (preserve l'ordre).
@@ -459,6 +483,7 @@ export const useApp = create<AppState>((set, get) => {
     lang: 'en',
     sshHosts: [],
     recentDirs: {},
+    skills: [],
     backgroundTasks: [],
     showTasks: false,
     appVersion: '',
@@ -550,6 +575,7 @@ export const useApp = create<AppState>((set, get) => {
         sshHosts,
         recentDirs: settings.recentDirs ?? {},
         customModels: settings.customModels ?? {},
+        skills: settings.skills ?? [],
         conversations: map,
         activeChatId: recent('chat'),
         activeCodeId: recent('code')
@@ -749,6 +775,26 @@ export const useApp = create<AppState>((set, get) => {
         if (models[0]) get().select({ credentialId: models[0].credentialId, model: models[0].id })
         else set({ selected: null })
       }
+    },
+
+    addSkill: () => {
+      const id = crypto.randomUUID()
+      const next = [...get().skills, { id, name: '', description: '', instructions: '', enabled: true }]
+      set({ skills: next })
+      window.api.settings.set({ skills: next })
+      return id
+    },
+
+    updateSkill: (id, patch) => {
+      const next = get().skills.map((s) => (s.id === id ? { ...s, ...patch } : s))
+      set({ skills: next })
+      window.api.settings.set({ skills: next })
+    },
+
+    removeSkill: (id) => {
+      const next = get().skills.filter((s) => s.id !== id)
+      set({ skills: next })
+      window.api.settings.set({ skills: next })
     },
 
     send: async (id, text, attachments = []) => {
